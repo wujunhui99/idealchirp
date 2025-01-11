@@ -246,13 +246,14 @@ class pyLoRa:
             self.sig = None
             return False
 
-    def write_file(self, file_path):
+    def write_file(self, file_path, sig = None):
         try:
             if self.sig is None:
                 raise ValueError("No signal data to write (self.sig is None)")
-
-            i_data = np.real(self.sig)
-            q_data = np.imag(self.sig)
+            if(sig is None):
+                sig = self.sig
+            i_data = np.real(sig)
+            q_data = np.imag(sig)
             iq_interleaved = np.vstack((i_data, q_data)).T.flatten()
 
             iq_interleaved = iq_interleaved.astype(np.float32)
@@ -299,7 +300,7 @@ class pyLoRa:
         pk_bin_list = []
         while (ii < len(self.sig) - self.get_samples_per_symbol() * self.preamble_len):
             if (len(pk_bin_list) == self.preamble_len - 1):
-                return ii - round((pk_bin_list[-1] ) / self.zero_padding_ratio * 8)
+                return ii - round((pk_bin_list[-1] ) / self.zero_padding_ratio * self.os_ratio)
             pk0 = self.real_dechirp(ii)
             if (len(pk_bin_list) != 0):
                 self.bin_num = self.zero_padding_ratio * 2 ** self.sf
@@ -356,68 +357,57 @@ class pyLoRa:
         return x_sync
 
     def comp_offset_td(self):
-        """
-        补偿CFO和累积的SFO
-        """
-        # 计算累积的SFO偏移
         self.sfo_accum = self.symbol_cnt * self.sfo
-
-        # 生成时间序列
-        t = np.arange(self.sample_num) / self.fs
-
-        # 计算补偿信号
+        t = np.arange(self.get_samples_per_symbol()) / self.fs
         phase = 2 * np.pi * (self.sfo_accum + self.cfo) * t
-        sfo_comp_sig = np.exp(1j * phase)
-
-        # 对基准downchirp进行补偿
-        self.downchirp = self.basedownchirp * sfo_comp_sig
-
-
-    '''
-    
-function x_sync = sync(self, x)
-   
-
-
-% Up-Down Alignment: downchirp和upchirp的峰值对齐
-    % 窗口完全对齐      窗口向左偏：pku减小，pkd增大      窗口向右偏：pku增大，pkd减小
-    % [  /|\  ]              [   |/\ ]                     [ /\|   ]
-    % [ / | \ ]              [  /|  \]                     [/  |\  ]
-    % [/  |  \]              [ / |   ]\                   /[   | \ ]
-
-
-
-% 细粒度窗口对齐: 消除sto，对齐到payload的起点x_sync
-    fine_to = round((pk_d(1,1)-ud_bin)/self.zero_padding_ratio*self.os_ratio);
-    x = x + fine_to;
-
-    pk_u_last = self.dechirp(x-self.sample_num, true);
-    pk_d_last = self.dechirp(x-self.sample_num, false);
-    if abs(pk_u_last(1,2)) > abs(pk_d_last(1,2))
-        % last chirp is upchirp, so current symbol is the first downchirp
-        x_sync = x + round(2.25*self.sample_num);
-    else
-        % last chirp is downchirp, so current symbol is the second downchirp
-        x_sync = x + round(1.25*self.sample_num);
-    end
-
-    % 对齐成功，计数解调符号
-    self.symbol_cnt = 0;
-end % sync
-    '''
+        self.symbol_cnt += 1
+        return  np.exp(-1j * phase)
+    def limit_demodulate(self,start = 0,symbols = 98, func = None):
+        ii = start
+        if func == None:
+            func = self.our_ideal_decode_decodev2
+        self.symbol_cnt = 0
+        for i in range(symbols):
+            sig = lora.sig[ii:ii+self.get_samples_per_symbol()]
+            sigc = sig * lora.comp_offset_td()
+            result = func(sig = sigc)
+            print(result)
+            ii += self.get_samples_per_symbol()
+        return ii
+    def limit_save(self, start = 0, num = 64, func = None,prefix = "./ideal_chirp",one = 0):
+        ii = start
+        if func == None:
+            func = self.our_ideal_decode_decodev2
+        if not one:
+            for i in range(num + 1):
+                sig = lora.sig[ii:ii+self.get_samples_per_symbol()]
+                sigc = sig * lora.comp_offset_td()
+                r = func(sig = sigc)
+                print(r)
+                lora.write_file(sig = sigc, filename = prefix + r[0] + '.cfile')
 
 
 
-# 1419592
+
+
+
 
 lora = pyLoRa()
+
+
 if __name__ == '__main__':
 
-    print(lora.read_file("/Users/junhui/code/test/up_upchirp.cfile"))
-    lora.preamble_len = 8
+    lora.read_file("/Users/junhui/code/test/fhss3.cfile")
+    lora.preamble_len = 6
     x = lora.detect(start_index=0)
     print(x)
-    print(lora.sync(x=x))
+    index = lora.sync(x=x)
+    print(index)
+    lora.limit_demodulate(start=index)
+
+
+
+
 
 
 
