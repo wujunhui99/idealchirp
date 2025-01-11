@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import unittest
 class pyLoRa:
-    def __init__(self, sf=7, bw=125e3,iq_invert=0 ,fs=1e6,sig = None, zero_padding = 10,payload=None, f0=0, preamble_len=6,raw_chirp=None):
+    def __init__(self, sf=7, bw=125e3,iq_invert=0 ,fs=1e6,sig = None, zero_padding = 10,payload=None, f0=0, preamble_len=6,raw_chirp=None,rf_freq = 915e6):
         if not isinstance(sf, int) or sf < 7 or sf > 12:
             raise ValueError("SF must be an integer between 7 and 12")
         if bw <= 0:
@@ -26,6 +26,13 @@ class pyLoRa:
         self.preamble_len = preamble_len
         self.iq_invert = iq_invert
         self.zero_padding_ratio = zero_padding
+        self.symbol_cnt = 0
+        self.cfo = 0
+        self.sfo = 0
+        self.rf_freq = rf_freq
+        self.os_ratio =int( self.fs / self.bw)
+        self.bin_num = 2 ** self.sf * zero_padding
+        self.sfo_accum = 0
 
     def get_symbol_period(self):
         return (2 ** self.sf) / self.bw
@@ -254,10 +261,30 @@ class pyLoRa:
         except Exception as e:
             print(f"Error writing file: {str(e)}")
             return False
-    def real_dechirp(self,start = 0,zero_padding = 10):
+    def real_dechirp(self,start = 0,zero_padding = 10, is_up = 1):
+        self.zero_padding_ratio = zero_padding
+        self.bin_num = 2 ** self.sf * zero_padding
         sig = lora.sig[start:start + lora.get_samples_per_symbol()]
-        downchirp = lora.ideal_chirp(f0=0,iq_invert=1)
-        dechirped = sig * downchirp
+        if (is_up):
+            conjugate = lora.ideal_chirp(f0=0,iq_invert=1)
+        else:
+            conjugate = lora.ideal_chirp(f0=0,iq_invert=0)
+        dechirped = sig * conjugate
+        ft = np.fft.fft(dechirped,len(dechirped) * zero_padding)
+        ft_magnitude = np.abs(ft)
+        front = ft_magnitude[:2 ** self.sf * zero_padding]
+        end = ft_magnitude[len(ft_magnitude) - 2 ** self.sf * zero_padding:]
+        ft_magnitude = front + end
+        max_index = np.argmax(ft_magnitude)
+        max_value = ft_magnitude[max_index]
+        return max_index,max_value
+    def ideal_dechirp(self,start = 0,zero_padding = 10, is_up = 1):
+        sig = lora.sig[start:start + lora.get_samples_per_symbol()]
+        if (is_up):
+            conjugate = lora.ideal_chirp(f0=0,iq_invert=1)
+        else:
+            conjugate = lora.ideal_chirp(f0=0,iq_invert=0)
+        dechirped = sig * conjugate
         ft = np.fft.fft(dechirped,len(dechirped) * zero_padding)
         ft_magnitude = np.abs(ft)
         front = ft_magnitude[:2 ** self.sf * zero_padding]
@@ -275,7 +302,7 @@ class pyLoRa:
                 return ii - round((pk_bin_list[-1] ) / self.zero_padding_ratio * 8)
             pk0 = self.real_dechirp(ii)
             if (len(pk_bin_list) != 0):
-                self.bin_num = self.zero_padding_ratio * self.get_samples_per_symbol()
+                self.bin_num = self.zero_padding_ratio * 2 ** self.sf
                 bin_diff = (pk_bin_list[-1] - pk0[0]) % self.bin_num
                 if (bin_diff > self.bin_num / 2):
                     bin_diff = self.bin_num - bin_diff
@@ -287,6 +314,97 @@ class pyLoRa:
                 pk_bin_list = [pk0[0]]
             ii += self.get_samples_per_symbol()
         return -1
+    def sync(self,x = 0):
+        found = 0
+        while(x < len(self.sig) - self.get_samples_per_symbol()):
+            up_peak = self.real_dechirp(start=x,zero_padding=self.zero_padding_ratio,is_up=1)
+            down_peak = self.real_dechirp(start=x,zero_padding=self.zero_padding_ratio,is_up=0)
+            if(up_peak[1] < down_peak[1]):
+                found = 1
+            x += self.get_samples_per_symbol()
+            if (found):
+                break
+        if (not found):
+            return -1
+        pkd = self.real_dechirp(x,is_up=0,zero_padding=self.zero_padding_ratio)
+        self.fftbin_num = 2 ** self.sf * self.zero_padding_ratio
+        if pkd[0] > self.fftbin_num/2:
+            coarse_to = round((pkd[0] - self.fftbin_num) / self.zero_padding_ratio)
+        else:
+            coarse_to = pkd[0] / self.zero_padding_ratio
+
+        x += int(coarse_to) * 4
+
+        pk_d = self.real_dechirp(x,is_up=0,zero_padding=100)
+        pk_u = self.real_dechirp(x-4*self.get_samples_per_symbol(),is_up=1,zero_padding=100)
+        ud_bin = round((pk_u[0] + pk_d[0])/2)
+
+        if ud_bin > self.bin_num/2:
+            self.cfo = (ud_bin - self.bin_num) * self.bw / self.bin_num
+        else:
+            self.cfo = (ud_bin) * self.bw / self.bin_num
+        self.sfo = self.cfo / self.rf_freq * self.bw
+        fine_to = round((pk_d[0] - ud_bin) / self.zero_padding_ratio * self.os_ratio * 4)
+        x = x + fine_to
+
+        pk_u_last = self.real_dechirp(x - self.get_samples_per_symbol(),is_up=1)
+        pk_d_last = self.real_dechirp(x - self.get_samples_per_symbol(), is_up=0)
+        if pk_u_last[1] > pk_d_last[1]:
+            x_sync = x + round(2.25 * self.get_samples_per_symbol())
+        else:
+            x_sync = x + round(1.25 * self.get_samples_per_symbol())
+        return x_sync
+
+    def comp_offset_td(self):
+        """
+        补偿CFO和累积的SFO
+        """
+        # 计算累积的SFO偏移
+        self.sfo_accum = self.symbol_cnt * self.sfo
+
+        # 生成时间序列
+        t = np.arange(self.sample_num) / self.fs
+
+        # 计算补偿信号
+        phase = 2 * np.pi * (self.sfo_accum + self.cfo) * t
+        sfo_comp_sig = np.exp(1j * phase)
+
+        # 对基准downchirp进行补偿
+        self.downchirp = self.basedownchirp * sfo_comp_sig
+
+
+    '''
+    
+function x_sync = sync(self, x)
+   
+
+
+% Up-Down Alignment: downchirp和upchirp的峰值对齐
+    % 窗口完全对齐      窗口向左偏：pku减小，pkd增大      窗口向右偏：pku增大，pkd减小
+    % [  /|\  ]              [   |/\ ]                     [ /\|   ]
+    % [ / | \ ]              [  /|  \]                     [/  |\  ]
+    % [/  |  \]              [ / |   ]\                   /[   | \ ]
+
+
+
+% 细粒度窗口对齐: 消除sto，对齐到payload的起点x_sync
+    fine_to = round((pk_d(1,1)-ud_bin)/self.zero_padding_ratio*self.os_ratio);
+    x = x + fine_to;
+
+    pk_u_last = self.dechirp(x-self.sample_num, true);
+    pk_d_last = self.dechirp(x-self.sample_num, false);
+    if abs(pk_u_last(1,2)) > abs(pk_d_last(1,2))
+        % last chirp is upchirp, so current symbol is the first downchirp
+        x_sync = x + round(2.25*self.sample_num);
+    else
+        % last chirp is downchirp, so current symbol is the second downchirp
+        x_sync = x + round(1.25*self.sample_num);
+    end
+
+    % 对齐成功，计数解调符号
+    self.symbol_cnt = 0;
+end % sync
+    '''
 
 
 
@@ -297,7 +415,9 @@ if __name__ == '__main__':
 
     print(lora.read_file("/Users/junhui/code/test/up_upchirp.cfile"))
     lora.preamble_len = 8
-    print(lora.detect(start_index=0))
+    x = lora.detect(start_index=0)
+    print(x)
+    print(lora.sync(x=x))
 
 
 
