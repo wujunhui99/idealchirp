@@ -66,9 +66,9 @@ class pyLoRa:
         # Normalize
         self.raw_chirp = signal
         return signal
-    def our_ideal_decode(self, ideal_data):
+    def our_ideal_decode(self, sig):
         down_chirp = self.ideal_chirp(f0=0, iq_invert=1)
-        dechirp = ideal_data * down_chirp
+        dechirp = sig * down_chirp
         # Compute FFT
         fft_result = np.fft.fft(dechirp)
 
@@ -80,9 +80,9 @@ class pyLoRa:
         max_magnitude = np.max(magnitudes)
         max_idx = np.argmax(magnitudes)
         return max_idx, max_magnitude
-    def loraphy_CPA(self, real_data):
+    def loraphy_CPA(self, sig):
         down_chirp = self.ideal_chirp(f0=0, iq_invert=1)
-        dechirp = real_data * down_chirp
+        dechirp = sig * down_chirp
         # Compute FFT
         fft_result = np.fft.fft(dechirp)
 
@@ -151,14 +151,14 @@ class pyLoRa:
         plt.tight_layout()
         plt.show()
 
-    def loraphy_FPA(self, data_in):
+    def loraphy_FPA(self, sig):
         upsampling = 100  # up-sampling rate for loraphy, default 100
         # upsamping can counter possible frequency misalignments, finding the highest position of the signal peak,
         # but higher upsampling lead to more noise
         num_classes = 2 ** self.sf
         # dechirp
         downchirp = self.ideal_chirp(f0=0,iq_invert=1)
-        chirp_data = data_in * downchirp
+        chirp_data = sig * downchirp
 
         # compute FFT
 
@@ -239,7 +239,7 @@ class pyLoRa:
             # Combine into complex signal
             self.sig = i_data + 1j * q_data
 
-            return True
+            return self.sig
 
         except Exception as e:
             print(f"Error reading file: {str(e)}")
@@ -367,24 +367,28 @@ class pyLoRa:
         if func == None:
             func = self.our_ideal_decode_decodev2
         self.symbol_cnt = 0
+        result = []
         for i in range(symbols):
             sig = lora.sig[ii:ii+self.get_samples_per_symbol()]
             sigc = sig * lora.comp_offset_td()
-            result = func(sig = sigc)
-            print(result)
+            result.append(func(sig = sigc))
             ii += self.get_samples_per_symbol()
         return ii
-    def limit_save(self, start = 0, num = 64, func = None,prefix = "./ideal_chirp",one = 0):
+    def limit_save(self, start = 0, num = 64, func = None,prefix = "./ideal",one = 1):
         ii = start
         if func == None:
             func = self.our_ideal_decode_decodev2
-        if not one:
-            for i in range(num + 1):
-                sig = lora.sig[ii:ii+self.get_samples_per_symbol()]
-                sigc = sig * lora.comp_offset_td()
-                r = func(sig = sigc)
-                print(r)
-                lora.write_file(sig = sigc, filename = prefix + r[0] + '.cfile')
+        num = num + one
+        for i in range(num):
+            sig = lora.sig[ii:ii+self.get_samples_per_symbol()]
+            sigc = sig * lora.comp_offset_td()
+            r = func(sig = sigc)
+            print(r)
+            lora.write_file(sig = sigc, file_path = prefix +'/'+ str(r[0]) + '.cfile')
+            ii += self.get_samples_per_symbol()
+
+
+
 
 
 
@@ -397,13 +401,24 @@ lora = pyLoRa()
 
 if __name__ == '__main__':
 
-    lora.read_file("/Users/junhui/code/test/fhss3.cfile")
+
+    lora.read_file("/Users/junhui/code/test/nm.cfile")
     lora.preamble_len = 6
-    x = lora.detect(start_index=0)
-    print(x)
-    index = lora.sync(x=x)
-    print(index)
-    lora.limit_demodulate(start=index)
+    index = 0
+    # index = lora.detect(start_index=index)
+    # index = lora.sync(x=index)
+    # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
+    # index = lora.limit_demodulate(start=index, symbols=98, func=lora.our_ideal_decode_decodev2)
+    #
+    # index = lora.detect(start_index=index)
+    # index = lora.sync(x=index)
+    # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
+    # index = lora.limit_demodulate(start=index, symbols=98, func=lora.our_ideal_decode_decodev2)
+    for i in range(6):
+        index = lora.detect(start_index=index)
+        index = lora.sync(x=index)
+        lora.limit_save(start=index,num=80,func=lora.loratrimmer_decode,prefix="./real")
+        index = lora.limit_demodulate(start=index,symbols=98,func = lora.loratrimmer_decode)
 
 
 
@@ -411,7 +426,8 @@ if __name__ == '__main__':
 
 
 
-    pass
+
+
 
 
 
