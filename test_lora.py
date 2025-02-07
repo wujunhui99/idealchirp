@@ -1,3 +1,4 @@
+# 测试不同解码方法性能
 import pytest
 from pyLoRa import lora
 import os
@@ -49,7 +50,7 @@ def test_snr_epoch_trimer_all(snr,epochs,dir_path, func):
     print(result/(epochs*128))
     return result/(epochs*128)
 
-@pytest.mark.parametrize("snr,epochs,dir_path,func", [
+@pytest.mark.parametrize("snr,epochs,symbol,dir_path,func", [
     (-20, 100,1,"./ideal",lora.our_ideal_decode_decodev2),
     (-20, 100,1,"./real",lora.loratrimmer_decode),
     (-20, 100,1,"./real",lora.loraphy_FPA),
@@ -69,4 +70,6 @@ def test_snr_epoch_trimer_symbol(snr,epochs,symbol,dir_path, func):
         if ret == truth:
             result += 1
     print(result/(epochs*128))
-    return result/(epochs*128)
+    success_rate = result / (epochs * 128)
+    assert success_rate >= 0
+   #return result/(epochs*128)

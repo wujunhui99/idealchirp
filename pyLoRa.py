@@ -80,21 +80,7 @@ class pyLoRa:
         max_magnitude = np.max(magnitudes)
         max_idx = np.argmax(magnitudes)
         return max_idx, max_magnitude
-    def loraphy_CPA(self, sig):
-        down_chirp = self.ideal_chirp(f0=0, iq_invert=1)
-        dechirp = sig * down_chirp
-        # Compute FFT
-        fft_result = np.fft.fft(dechirp)
 
-        # Get magnitude spectrum (absolute values)
-        magnitudes = np.abs(fft_result)
-
-
-        n = len(magnitudes) // 2
-        magnitudes = magnitudes[:n] + np.append(np.flip( magnitudes[n:] ), magnitudes[n])[1:]
-        max_magnitude = np.max(magnitudes)
-        max_idx = np.argmax(magnitudes)
-        return max_idx, max_magnitude
 
     def reverse_arr(self,iq_data,beg,end):
         while(end > beg):
@@ -151,7 +137,7 @@ class pyLoRa:
         plt.tight_layout()
         plt.show()
 
-    def loraphy_FPA(self, sig):
+    def loraphy(self, sig):
         upsampling = 100  # up-sampling rate for loraphy, default 100
         # upsamping can counter possible frequency misalignments, finding the highest position of the signal peak,
         # but higher upsampling lead to more noise
@@ -181,6 +167,42 @@ class pyLoRa:
             result[i] = self.ideal_chirp(f0=i,iq_invert=1)
             self.f0 = i
         return result
+    def our_ideal_decode_decodev2z(self,sig):
+        downchirp = lora.ideal_chirp(f0=0,iq_invert=1)
+        dechirped = sig * downchirp
+        fft_raw = np_fft(dechirped, len(dechirped))
+        useful = fft_raw[:self.get_samples_per_symbol()]
+        mag = np.abs(useful) ** 2
+        est = np.argmax(mag)
+        max_val = np.max(mag)
+        return est, max_val
+
+    def our_ideal_decode_decodev2x(self, sig):
+        mtx = self.gen_tone_matrix()
+        sig = sig * lora.ideal_chirp(f0=0,iq_invert=1)
+        sig = np.array(sig).T
+        result = np.matmul(mtx, sig)
+        vals = np.abs(result) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+
+    def gen_tone_matrix(self):
+        num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
+        num_samples = int(num_classes * self.fs / self.bw)  # number of samples per symbol
+        result = np.zeros((num_classes, num_samples), dtype=np.complex64)
+        for i in range(num_classes):
+            result[i] = self.gen_tone(freq=- i * self.bw / num_classes)
+        return result
+    def gen_tone(self, freq):
+        length = self.get_samples_per_symbol()
+        fs = self.fs
+        t = np.arange(length) / fs
+        signal = np.exp(1j * 2 * np.pi * freq * t)
+        return signal
+
+
+
     def gen_constants(self):
         num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
         num_samples = int(num_classes * self.fs / self.bw)  # number of samples per symbol
@@ -388,14 +410,6 @@ class pyLoRa:
             ii += self.get_samples_per_symbol()
 
 
-
-
-
-
-
-
-
-
 lora = pyLoRa()
 
 
@@ -405,6 +419,14 @@ if __name__ == '__main__':
     lora.read_file("/Users/junhui/code/test/nm.cfile")
     lora.preamble_len = 6
     index = 0
+    sigx = lora.ideal_chirp(f0=123)
+    print(lora.our_ideal_decode_decodev2z(sig=sigx))
+    print(lora.our_ideal_decode_decodev2x(sig=sigx))
+    print(lora.our_ideal_decode_decodev2(sig=sigx))
+
+
+
+
     # index = lora.detect(start_index=index)
     # index = lora.sync(x=index)
     # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
@@ -414,11 +436,12 @@ if __name__ == '__main__':
     # index = lora.sync(x=index)
     # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
     # index = lora.limit_demodulate(start=index, symbols=98, func=lora.our_ideal_decode_decodev2)
-    for i in range(6):
-        index = lora.detect(start_index=index)
-        index = lora.sync(x=index)
-        lora.limit_save(start=index,num=80,func=lora.loratrimmer_decode,prefix="./real")
-        index = lora.limit_demodulate(start=index,symbols=98,func = lora.loratrimmer_decode)
+
+    # for i in range(6):
+    #     index = lora.detect(start_index=index)
+    #     index = lora.sync(x=index)
+    #     lora.limit_save(start=index,num=80,func=lora.loratrimmer_decode,prefix="./real")
+    #     index = lora.limit_demodulate(start=index,symbols=98,func = lora.loratrimmer_decode)
 
 
 

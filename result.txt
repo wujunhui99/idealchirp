@@ -10,6 +10,7 @@ Ideal Decode: 0.0580
 LoRa Trimmer: 0.1151
 LoRa FPA: 0.0520
 LoRa CPA: 0.0108
+
 Testing SNR: -24
 Ideal Decode v2: 0.3887
 Ideal Decode: 0.1938
@@ -28,6 +29,7 @@ Ideal Decode: 0.9581
 LoRa Trimmer: 0.9423
 LoRa FPA: 0.6996
 LoRa CPA: 0.2302
+
 Testing SNR: -15
 Ideal Decode v2: 1.0000
 Ideal Decode: 0.9998

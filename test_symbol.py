@@ -1,4 +1,4 @@
-import pytest
+# 测试不同symbol的解码性能
 from pyLoRa import lora
 import os
 import numpy as np
