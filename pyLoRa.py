@@ -4,7 +4,6 @@ from scipy.fft import fft as np_fft
 from scipy.signal import chirp as np_chirp
 import matplotlib.pyplot as plt
 import numpy as np
-import unittest
 class pyLoRa:
     def __init__(self, sf=7, bw=125e3,iq_invert=0 ,fs=1e6,sig = None, zero_padding = 10,payload=None, f0=0, preamble_len=6,raw_chirp=None,rf_freq = 915e6):
         if not isinstance(sf, int) or sf < 7 or sf > 12:
@@ -168,7 +167,7 @@ class pyLoRa:
             self.f0 = i
         return result
     def our_ideal_decode_decodev2z(self,sig):
-        downchirp = lora.ideal_chirp(f0=0,iq_invert=1)
+        downchirp = self.ideal_chirp(f0=0,iq_invert=1)
         dechirped = sig * downchirp
         fft_raw = np_fft(dechirped, len(dechirped))
         useful = fft_raw[:self.get_samples_per_symbol()]
@@ -179,7 +178,7 @@ class pyLoRa:
 
     def our_ideal_decode_decodev2x(self, sig):
         mtx = self.gen_tone_matrix()
-        sig = sig * lora.ideal_chirp(f0=0,iq_invert=1)
+        sig = sig * self.ideal_chirp(f0=0,iq_invert=1)
         sig = np.array(sig).T
         result = np.matmul(mtx, sig)
         vals = np.abs(result) ** 2
@@ -194,6 +193,37 @@ class pyLoRa:
         for i in range(num_classes):
             result[i] = self.gen_tone(freq=- i * self.bw / num_classes)
         return result
+
+    def bandpass_filter(self, fft_sig, fs, cutoff, offset):
+
+        # 进行FFT
+        freq = np.fft.fftfreq(len(fft_sig), 1 / fs)
+        # 构建带通滤波器掩码
+        mask = np.abs(freq - offset) <= cutoff
+        # 应用滤波器
+        fft_sig_filtered = fft_sig * mask
+        return fft_sig_filtered
+    def our_ideal_decode_decodev3(self, up):
+        # 对两个信号做傅里叶变换
+        down = self.ideal_chirp(f0=0,iq_invert=1)
+        up_freq = np.fft.fft(up)
+        down_freq = np.fft.fft(down)
+
+        # 在频域上进行卷积操作
+        N = len(up_freq)
+        res = np.zeros(N, dtype=complex)
+
+        for i in range(N):
+            offset = self.bw * i / 2 ** self.sf
+            bandfilter = self.bandpass_filter(up_freq, self.fs, cutoff=self.bw, offset=offset)
+            for j in range(N):
+                k = (i + j) % N  # 循环卷积
+                res[k] += bandfilter[i] * down_freq[j] / N
+        res = np.abs(res[:2 ** self.sf])
+
+        value = np.max(res)
+        index = np.argmax(res)
+        return index, value
     def gen_tone(self, freq):
         length = self.get_samples_per_symbol()
         fs = self.fs
@@ -224,6 +254,46 @@ class pyLoRa:
 
         return dataE1, dataE2
 
+    def fft_lowpass_filter(self,sig, fs, cutoff):
+        # sig: 输入信号(复数numpy数组)
+        # fs: 采样率 1MHz
+        # cutoff: 截止频率 62.5kHz
+
+        # 进行FFT
+        fft_sig = np.fft.fft(sig)
+        freq = np.fft.fftfreq(len(sig), 1 / fs)
+
+        # 构建频域滤波器
+        mask = np.abs(freq) <= cutoff
+
+        # 应用滤波器
+        fft_sig_filtered = fft_sig * mask
+
+        # 进行IFFT
+        filtered_sig = np.fft.ifft(fft_sig_filtered)
+
+        return filtered_sig
+    def filter2_loratrimmer_decode(self, sig):
+        dataE1,dataE2 = self.gen_constants()
+        sig = self.fft_lowpass_filter(sig, self.fs, self.bw/2)
+        sig = np.array(sig).T
+        data1 = np.matmul(dataE1, sig)
+        data2 = np.matmul(dataE2, sig)
+        vals = np.abs(data1) ** 2 + np.abs(data2) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+    def filter_loratrimmer_decode(self, sig):
+        dataE1,dataE2 = self.gen_constants()
+        sig = self.fft_lowpass_filter(sig, self.fs, self.bw)
+        sig = np.array(sig).T
+        data1 = np.matmul(dataE1, sig)
+        data2 = np.matmul(dataE2, sig)
+        vals = np.abs(data1) ** 2 + np.abs(data2) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+
     def loratrimmer_decode(self, sig):
         dataE1,dataE2 = self.gen_constants()
         sig = np.array(sig).T
@@ -233,6 +303,7 @@ class pyLoRa:
         est = np.argmax(vals).item()
         max_val = np.max(vals).item()
         return est, max_val
+
     def our_ideal_decode_decodev2(self, sig):
         mtx = self.gen_ideal_matrix()
         sig = np.array(sig).T
@@ -410,22 +481,36 @@ class pyLoRa:
             ii += self.get_samples_per_symbol()
 
 
-lora = pyLoRa()
+
+
+
+
+
+
 
 
 if __name__ == '__main__':
+    lora = pyLoRa()
+    # up = lora.ideal_chirp(f0=63)
+    # (self, sig, fs, cutoff)
+    up = lora.read_file('./ideal/63.cfile')
+    sx = lora.ideal_chirp(f0=0,iq_invert=1)
+    dechirped = sx * up
+    lora.write_file("up.cfile",up)
+    lora.write_file("downchirp.cfile",sx)
+    lora.write_file("dechirped.cfile",dechirped)
+    # r = lora.fft_lowpass_filter(up,fs=lora.fs,cutoff=lora.bw/2)
+    # lora.write_file("fil.cfile",sig = r)
+    # lora.write_file("raw.cfile",sig = up)
 
 
-    lora.read_file("/Users/junhui/code/test/nm.cfile")
-    lora.preamble_len = 6
-    index = 0
-    sigx = lora.ideal_chirp(f0=123)
-    print(lora.our_ideal_decode_decodev2z(sig=sigx))
-    print(lora.our_ideal_decode_decodev2x(sig=sigx))
-    print(lora.our_ideal_decode_decodev2(sig=sigx))
-
-
-
+    # lora.read_file("/Users/junhui/code/test/nm.cfile")
+    # lora.preamble_len = 6
+    # index = 0
+    # sigx = lora.ideal_chirp(f0=123)
+    # print(lora.our_ideal_decode_decodev2z(sig=sigx))
+    # print(lora.our_ideal_decode_decodev2x(sig=sigx))
+    # print(lora.our_ideal_decode_decodev2(sig=sigx))
 
     # index = lora.detect(start_index=index)
     # index = lora.sync(x=index)

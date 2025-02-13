@@ -1,10 +1,10 @@
 import pytest
-from pyLoRa import lora
+from pyLoRa import pyLoRa
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
-
+lora = pyLoRa()
 def load_sig(file_path):
     return lora.read_file(file_path)
 
@@ -12,27 +12,33 @@ def load_sig(file_path):
 def test_multiple_snr():
     # SNR范围从-30到-3，步进为3
     snr_range = np.arange(-30, -2, 3)
-    epochs = 40  # 可以根据需要调整
+    epochs = 10  # 可以根据需要调整
 
     # 存储每个函数在不同SNR下的准确率
     results = {
         'Ideal Decode v2': [],
-        'Ideal Decode': [],
+        'Ideal Decode v3': [],
+        # 'Ideal Decode': [],
         'LoRa Trimmer': [],
+        'LoRa filterTrimmer': [],
+        'LoRa filter2Trimmer': [],
         'LoRaPHY': [],
-        'Ideal Decode v2x': [],
-        'Ideal Decode v2z': []
+        # 'Ideal Decode v2x': [],
+        # 'Ideal Decode v2z': []
 
     }
 
     # 测试函数配置
     test_configs = [
         ('Ideal Decode v2', './ideal', lora.our_ideal_decode_decodev2),
-        ('Ideal Decode', './ideal', lora.our_ideal_decode),
+        ('Ideal Decode v3', './ideal', lora.our_ideal_decode_decodev2),
+        # ('Ideal Decode', './ideal', lora.our_ideal_decode),
         ('LoRa Trimmer', './real', lora.loratrimmer_decode),
+        ('LoRa filterTrimmer', './real', lora.filter_loratrimmer_decode),
+        ('LoRa filter2Trimmer', './real', lora.filter2_loratrimmer_decode),
         ('LoRaPHY', './real', lora.loraphy),
-        ('Ideal Decode v2x', './ideal', lora.our_ideal_decode_decodev2x),
-        ('Ideal Decode v2z', './ideal', lora.our_ideal_decode_decodev2z),
+        # ('Ideal Decode v2x', './ideal', lora.our_ideal_decode_decodev2x),
+        # ('Ideal Decode v2z', './ideal', lora.our_ideal_decode_decodev2z),
     ]
 
     # 对每个SNR值进行测试
