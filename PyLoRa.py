@@ -4,7 +4,7 @@ from scipy.fft import fft as np_fft
 from scipy.signal import chirp as np_chirp
 import matplotlib.pyplot as plt
 import numpy as np
-class pyLoRa:
+class PyLoRa:
     def __init__(self, sf=7, bw=125e3,iq_invert=0 ,fs=1e6,sig = None, zero_padding = 10,payload=None, f0=0, preamble_len=6,raw_chirp=None,rf_freq = 915e6, bit = 5):
         if not isinstance(sf, int) or sf < 7 or sf > 12:
             raise ValueError("SF must be an integer between 7 and 12")
@@ -512,51 +512,18 @@ class pyLoRa:
 
 
 if __name__ == '__main__':
-    lora = pyLoRa()
-    # up = lora.ideal_chirp(f0=63)
-    # (self, sig, fs, cutoff)
-    print(6)
-    sig = lora.ideal_chirp(f0=63)
-    c1,c2 = 0, 0
-    for i in range(100):
-        n1 = lora.add_noise(sig=sig,snr = -20)
-        n2 = lora.add_noise2(sig=sig,snr=-20)
-        if lora.our_ideal_decode_decodev2(n1)[0] == 63:
-            c1 += 1
-        if lora.our_ideal_decode_decodev2(n2)[0] == 63:
-            c2 += 1
-    print(c1)
-    print(c2)
+    lora = PyLoRa()
 
 
-    # r = lora.fft_lowpass_filter(up,fs=lora.fs,cutoff=lora.bw/2)
-    # lora.write_file("fil.cfile",sig = r)
-    # lora.write_file("raw.cfile",sig = up)
 
 
-    # lora.read_file("/Users/junhui/code/test/nm.cfile")
-    # lora.preamble_len = 6
-    # index = 0
-    # sigx = lora.ideal_chirp(f0=123)
-    # print(lora.our_ideal_decode_decodev2z(sig=sigx))
-    # print(lora.our_ideal_decode_decodev2x(sig=sigx))
-    # print(lora.our_ideal_decode_decodev2(sig=sigx))
 
-    # index = lora.detect(start_index=index)
-    # index = lora.sync(x=index)
-    # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
-    # index = lora.limit_demodulate(start=index, symbols=98, func=lora.our_ideal_decode_decodev2)
-    #
-    # index = lora.detect(start_index=index)
-    # index = lora.sync(x=index)
-    # lora.limit_save(start=index, num=64, func=lora.our_ideal_decode_decodev2, prefix="./ideal",one=1)
-    # index = lora.limit_demodulate(start=index, symbols=98, func=lora.our_ideal_decode_decodev2)
 
-    # for i in range(6):
-    #     index = lora.detect(start_index=index)
-    #     index = lora.sync(x=index)
-    #     lora.limit_save(start=index,num=80,func=lora.loratrimmer_decode,prefix="./real")
-    #     index = lora.limit_demodulate(start=index,symbols=98,func = lora.loratrimmer_decode)
+
+
+
+
+
 
 
 

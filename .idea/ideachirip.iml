@@ -2,7 +2,7 @@
 <module type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$" />
-    <orderEntry type="jdk" jdkName="Remote Python 3.8.10 (sftp://szu-iot@172.31.73.221:22/home/szu-iot/.virtualenvs/ideachirip/bin/python) (2)" jdkType="Python SDK" />
+    <orderEntry type="jdk" jdkName="ideachirp" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
   <component name="TestRunnerService">

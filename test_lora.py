@@ -1,6 +1,6 @@
 # 测试不同解码方法性能
 import pytest
-from pyLoRa import lora
+from PyLoRa import lora
 import os
 
 @pytest.mark.parametrize("frequency,expected", [

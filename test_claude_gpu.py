@@ -1,56 +1,65 @@
-from PyLoRa import PyLoRa
+from PyLoRa_GPU import PyLoRa
 import os
 import numpy as np
 import matplotlib.pyplot as plt
 from datetime import datetime
 import time
 import pytest
-import json
-lora = PyLoRa()
-#('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
+
+# Create a global PyLoRa instance with GPU flag
+lora = PyLoRa(use_gpu=True)
+
+
+# ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
 class Config():
-    def __init__(self,name,ty,func):
+    def __init__(self, name, ty, func):
         self.name = name
         self.ty = ty
         self.func = func
+
+
 configs = [
     Config('Ideal Decode v2', "ideal", lora.our_ideal_decode_decodev2),
-    # Config('Ideal Decode v2 5bit', "ideal", lora.our_ideal_decode_decodev2_bit),
     Config('LoRa Trimmer', "real", lora.loratrimmer_decode),
     Config('LoRaPHY', "real", lora.loraphy)
 ]
+
+
 def load_sig(file_path):
     return lora.read_file(file_path)
+
 
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        ("mock", 7, -40, -2, 2, 20),
-        ("mock",8,-40,-2,2,20),
-        ("mock",9,-40,-2,2,20),
-        ("mock",10,-40,-2,2,20)
+        ("mock", 8, -40, -2, 3, 20),
+        ("mock", 9, -40, -2, 3, 20),
+        ("mock", 10, -40, -2, 3, 20)
     ]
 )
-def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
+def test_multiple_snr(data, sf, snr_min, snr_max, step, epochs):
     lora.sf = sf
     # SNR范围从-30到-3，步进为3
     snr_range = np.arange(snr_min, snr_max, step)
-    # epochs = 1  # 可以根据需要调整
     # 存储每个函数在不同SNR下的准确率
     results = {
         'Ideal Decode v2': [],
-        # 'Ideal Decode v2 5bit': [],
         'LoRa Trimmer': [],
         'LoRaPHY': [],
     }
-    ideal = os.path.join(".",data,str(sf),"ideal")
-    real = os.path.join(".",data,str(sf),"real")
+
+    ideal = os.path.join(".", data, str(sf), "ideal")
+    real = os.path.join(".", data, str(sf), "real")
+
     # 测试函数配置
     test_configs = [
         ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
         ('LoRa Trimmer', real, lora.loratrimmer_decode),
         ('LoRaPHY', real, lora.loraphy),
     ]
+
+    # 记录开始时间
+    start_time = time.time()
 
     # 对每个SNR值进行测试
     for snr in snr_range:
@@ -72,24 +81,26 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
             accuracy = result / (epochs * 128)
             results[name].append(accuracy)
             print(f"{name}: {accuracy:.4f}")
-    draw(results,snr_range,sf)
-    with open(f'./result/sf{sf}.json', 'w') as file:
-        res = results.copy()
-        res['snr_range'] = snr_range.tolist()
-        res['sf'] = sf
-        json.dump(res, file, indent=4)
+
+    # 记录结束时间并计算总耗时
+    end_time = time.time()
+    elapsed_time = end_time - start_time
+    print(f"Total execution time: {elapsed_time:.2f} seconds")
+
+    draw(results, snr_range, sf)
     return results, snr_range, results
-def draw(results,snr_range,sf):
+
+
+def draw(results, snr_range, sf):
     plt.figure(figsize=(10, 6))
     for name in results:
         plt.plot(snr_range, results[name], marker='o', label=name)
 
     plt.xlabel('SNR (dB)')
     plt.ylabel('Accuracy')
-    plt.title('Decoder Performance vs SNR(SF=8) mock data')
+    plt.title(f'Decoder Performance vs SNR(SF={sf}) mock data')
     plt.grid(True)
     plt.legend()
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    plt.savefig(f'./imgs/decoder_performance_SF{sf}_' + timestamp + '.png')
+    plt.savefig(f'decoder_performance_SF{sf}_' + timestamp + '.png')
     plt.close()
-

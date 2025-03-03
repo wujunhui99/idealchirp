@@ -1,11 +1,46 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="szu-iot@172.31.73.221:22 password" remoteFilesAllowedToDisappearOnAutoupload="false" showDifferentInSync="false" showNewOnSourceInSync="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="szu-iot@172.31.73.221:22 password (6)" remoteFilesAllowedToDisappearOnAutoupload="false" showDifferentInSync="false" showNewOnSourceInSync="false">
     <serverData>
       <paths name="szu-iot@172.31.73.221:22 password">
         <serverdata>
           <mappings>
             <mapping deploy="/home/szu-iot/code" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="szu-iot@172.31.73.221:22 password (2)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_112" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="szu-iot@172.31.73.221:22 password (3)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/szu-iot/code/ideachirp" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="szu-iot@172.31.73.221:22 password (4)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/szu-iot/code/ideachirp" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="szu-iot@172.31.73.221:22 password (5)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/szu-iot/code/ideachirp" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="szu-iot@172.31.73.221:22 password (6)">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/szu-iot/code/ideachirp" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>
