@@ -1,9 +1,9 @@
 # 测试不同symbol的解码性能
-from PyLoRa import lora
+from PyLoRa import PyLoRa
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-
+lora = PyLoRa()
 
 def load_sig(file_path):
     return lora.read_file(file_path)
@@ -11,23 +11,23 @@ def load_sig(file_path):
 
 def test_symbol_performance():
     snr = -20
-    epochs = 400
+    epochs = 1000
     symbols = range(128)
 
     # 更新结果存储字典
     results = {
         'Ideal Decode v2': [],
-        'Ideal Decode': [],
         'LoRa Trimmer': [],
-        'LoRa FPA': []
+        'LoRaPHY': [],
+        'HFFT':[]
     }
 
     # 更新测试配置
     test_configs = [
-        ('Ideal Decode v2', './ideal', lora.our_ideal_decode_decodev2),
-        ('Ideal Decode', './ideal', lora.our_ideal_decode),
-        ('LoRa Trimmer', './real', lora.loratrimmer_decode),
-        ('LoRa FPA', './real', lora.loraphy_FPA)
+        ('Ideal Decode v2', './mock/7/ideal', lora.our_ideal_decode_decodev2),
+        ('LoRa Trimmer', './mock/7/real', lora.loratrimmer_decode),
+        ('LoRaPHY', './mock/7/real', lora.loraphy),
+        ('HFFT', './mock/7/real', lora.hfft_decode)
     ]
 
     # 对每个symbol进行测试
@@ -56,9 +56,9 @@ def test_symbol_performance():
     # 定义不同线型和颜色
     styles = [
         ('Ideal Decode v2', 'b-', 'blue'),
-        ('Ideal Decode', 'r--', 'red'),
+        ('HFFT', 'r--', 'red'),
         ('LoRa Trimmer', 'g:', 'green'),
-        ('LoRa FPA', 'm-.', 'magenta')
+        ('LoRaPHY', 'm-.', 'magenta')
     ]
 
     # 使用不同的线型绘制每个方法的结果

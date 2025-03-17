@@ -25,10 +25,10 @@ def load_sig(file_path):
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        ("mock", 7, -40, -2, 2, 20),
-        ("mock",8,-40,-2,2,20),
-        ("mock",9,-40,-2,2,20),
-        ("mock",10,-40,-2,2,20)
+        ("mock", 7, -40, -2, 1, 8),
+        ("mock",8,-40,-2,1,4),
+        ("mock",9,-40,-2,1,2),
+        ("mock",10,-40,-2,1,1)
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -39,6 +39,8 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
     # 存储每个函数在不同SNR下的准确率
     results = {
         'Ideal Decode v2': [],
+        'hfft_decode':[],
+        'mfft_decode':[],
         # 'Ideal Decode v2 5bit': [],
         'LoRa Trimmer': [],
         'LoRaPHY': [],
@@ -48,6 +50,8 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
     # 测试函数配置
     test_configs = [
         ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
+        ('hfft_decode', real, lora.hfft_decode),
+        ('mfft_decode', real, lora.mfft_decode),
         ('LoRa Trimmer', real, lora.loratrimmer_decode),
         ('LoRaPHY', real, lora.loraphy),
     ]
@@ -86,7 +90,7 @@ def draw(results,snr_range,sf):
 
     plt.xlabel('SNR (dB)')
     plt.ylabel('Accuracy')
-    plt.title('Decoder Performance vs SNR(SF=8) mock data')
+    plt.title(f'Decoder Performance vs SNR(SF={sf}) mock data')
     plt.grid(True)
     plt.legend()
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')

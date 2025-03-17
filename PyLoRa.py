@@ -4,6 +4,7 @@ from scipy.fft import fft as np_fft
 from scipy.signal import chirp as np_chirp
 import matplotlib.pyplot as plt
 import numpy as np
+# 弱信号解码
 class PyLoRa:
     def __init__(self, sf=7, bw=125e3,iq_invert=0 ,fs=1e6,sig = None, zero_padding = 10,payload=None, f0=0, preamble_len=6,raw_chirp=None,rf_freq = 915e6, bit = 5):
         if not isinstance(sf, int) or sf < 7 or sf > 12:
@@ -66,20 +67,167 @@ class PyLoRa:
         # Normalize
         self.raw_chirp = signal
         return signal
-    def our_ideal_decode(self, sig):
-        down_chirp = self.ideal_chirp(f0=0, iq_invert=1)
-        dechirp = sig * down_chirp
-        # Compute FFT
-        fft_result = np.fft.fft(dechirp)
 
-        # Get magnitude spectrum (absolute values)
+    def mfft_decode(self, sig):
+        osr = int(self.fs / self.bw)
+        target_osr = 2  # We'll downsample to OSR=2 as per paper
+
+        # Ensure we have a valid OSR
+        if osr < target_osr:
+            print("Warning: Current OSR is less than target OSR. Performance may be degraded.")
+            target_osr = 1
+
+        # Get number of samples per symbol at current OSR
+        samples_per_symbol = self.get_samples_per_symbol()
+
+        # Make sure signal is right length
+        if len(sig) > samples_per_symbol:
+            sig = sig[:samples_per_symbol]
+        elif len(sig) < samples_per_symbol:
+            pad_length = samples_per_symbol - len(sig)
+            sig = np.pad(sig, (0, pad_length), 'constant')
+
+        # Apply a bandpass filter to reduce out-of-band noise
+        sig_filtered = self.fft_lowpass_filter(sig, self.fs, self.bw)
+
+        # Downsample to OSR=2
+        if osr > target_osr:
+            # Instead of simple decimation, use averaging to preserve SNR
+            downsample_factor = osr // target_osr
+
+            # Reshape signal for averaging groups of samples
+            # Adjust length to be divisible by downsample_factor
+            trim_length = len(sig_filtered) - (len(sig_filtered) % downsample_factor)
+            sig_filtered_trimmed = sig_filtered[:trim_length]
+
+            # Reshape and average
+            sig_reshaped = sig_filtered_trimmed.reshape(-1, downsample_factor)
+            sig_downsampled = np.mean(sig_reshaped, axis=1)
+        else:
+            sig_downsampled = sig_filtered
+
+        # Calculate new number of samples after downsampling
+        N_downsampled = len(sig_downsampled)
+
+        # Ensure even number of samples for even/odd splitting
+        if N_downsampled % 2 != 0:
+            sig_downsampled = sig_downsampled[:-1]
+            N_downsampled -= 1
+
+        # Split signal into even and odd samples
+        even_samples = sig_downsampled[0::2]
+        odd_samples = sig_downsampled[1::2]
+
+        # Generate downchirp at OSR=2
+        original_fs = self.fs
+        self.fs = self.bw * target_osr  # Temporarily set fs to match target OSR
+        downchirp = self.ideal_chirp(f0=0, iq_invert=1)
+        self.fs = original_fs  # Restore original fs
+
+        # Ensure downchirp matches the length of even/odd samples
+        if len(downchirp) > 2 * len(even_samples):
+            downchirp = downchirp[:2 * len(even_samples)]
+
+        # Extract even and odd samples from downchirp
+        downchirp_even = downchirp[0::2][:len(even_samples)]
+        downchirp_odd = downchirp[1::2][:len(odd_samples)]
+
+        # Apply window function to reduce spectral leakage
+        window = np.hamming(len(even_samples))
+
+        # Process even samples
+        y_even = even_samples * downchirp_even * window
+        Y_even = np.fft.fft(y_even)
+
+        # Process odd samples
+        y_odd = odd_samples * downchirp_odd * window
+        Y_odd = np.fft.fft(y_odd)
+
+        # Number of bins at Nyquist rate
+        N = 2 ** self.sf
+
+        # Combine results with phase adjustment as per paper
+        # Make sure our FFT results are the right length
+        if len(Y_even) != N or len(Y_odd) != N:
+            # Resize FFT results to N bins
+            Y_even_resized = np.zeros(N, dtype=np.complex128)
+            Y_odd_resized = np.zeros(N, dtype=np.complex128)
+
+            # Copy available data
+            min_len = min(len(Y_even), N)
+            Y_even_resized[:min_len] = Y_even[:min_len]
+            Y_odd_resized[:min_len] = Y_odd[:min_len]
+
+            Y_even = Y_even_resized
+            Y_odd = Y_odd_resized
+
+        # Calculate combined result with proper phase adjustments
+        Y_combined = np.zeros(N, dtype=np.complex128)
+
+        for k in range(N):
+            # Phase adjustment as per paper equation (26)
+            phase_adjustment = np.exp(-1j * np.pi * k / N)
+            Y_combined[k] = Y_even[k] + phase_adjustment * Y_odd[k]
+
+        # Find the maximum magnitude and corresponding index
+        magnitudes = np.abs(Y_combined) ** 2
+        max_idx = np.argmax(magnitudes)
+        max_value = magnitudes[max_idx]
+
+        # Additional check: if the peak is not significant enough, try conventional method
+        peak_mean_ratio = max_value / np.mean(magnitudes)
+        if peak_mean_ratio < 3.0:  # Threshold can be tuned
+            # Fall back to conventional FFT method
+            downchirp_full = self.ideal_chirp(f0=0, iq_invert=1)
+            dechirped = sig_filtered * downchirp_full
+
+            # Apply window and FFT
+            window_full = np.hamming(len(dechirped))
+            dechirped_windowed = dechirped * window_full
+            fft_result = np.fft.fft(dechirped_windowed, samples_per_symbol)
+
+            # Find peak
+            magnitudes_conventional = np.abs(fft_result) ** 2
+            max_idx_conventional = np.argmax(magnitudes_conventional) % N
+            max_value_conventional = magnitudes_conventional[max_idx_conventional]
+
+            # Compare with combined method and choose the better one
+            if max_value_conventional > max_value:
+                max_idx = max_idx_conventional
+                max_value = max_value_conventional
+
+        return max_idx, max_value
+
+    def hfft_decode(self, sig):
+        downchirp = self.ideal_chirp(f0=0, iq_invert=1)
+
+        dechirped = sig * downchirp
+        fft_result = np.fft.fft(dechirped, len(dechirped))
+
         magnitudes = np.abs(fft_result)
 
+        num_bins = 2 ** self.sf
+
+        neg_freqs = magnitudes[len(magnitudes) - int(num_bins / 2):]
+        pos_freqs = magnitudes[:int(num_bins / 2)]
+
+        relevant_magnitudes = np.concatenate((neg_freqs, pos_freqs))
+
+        # Find the index of the maximum magnitude
+        max_idx = np.argmax(relevant_magnitudes)
+        max_magnitude = relevant_magnitudes[max_idx]
+
+        # Adjust the index to represent the correct symbol
+        if max_idx >= int(num_bins / 2):
+            # If in the negative frequency part, adjust the index
+            symbol = max_idx - int(num_bins / 2)
+        else:
+            # If in the positive frequency part, adjust the index
+            symbol = max_idx + int(num_bins / 2)
+
+        return symbol, max_magnitude
 
 
-        max_magnitude = np.max(magnitudes)
-        max_idx = np.argmax(magnitudes)
-        return max_idx, max_magnitude
 
 
     def reverse_arr(self,iq_data,beg,end):
