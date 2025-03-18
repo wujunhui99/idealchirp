@@ -1,6 +1,6 @@
-from PyLoRa import pyLoRa
+from PyLoRa import PyLoRa
 import os
-lora = pyLoRa()
+lora = PyLoRa()
 def mock_data(sf=8):
     dir = os.path.join(".","mock",str(sf))
     if not os.path.exists(dir):
