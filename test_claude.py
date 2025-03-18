@@ -6,29 +6,37 @@ from datetime import datetime
 import time
 import pytest
 import json
+from datetime import datetime
+
+class Singleton:
+    _instance = None
+    _folder_name = None
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super().__new__(cls)
+            current_time = datetime.now()
+            formatted_time = current_time.strftime("%Y%m%d%H%M%S")
+            folder_name = f"./output/record{formatted_time}"
+            os.makedirs(folder_name)
+            cls._folder_name = folder_name
+        return cls._instance
+    def get_folder(self):
+        return self._folder_name
+
+
 lora = PyLoRa()
 #('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
-class Config():
-    def __init__(self,name,ty,func):
-        self.name = name
-        self.ty = ty
-        self.func = func
-configs = [
-    Config('Ideal Decode v2', "ideal", lora.our_ideal_decode_decodev2),
-    # Config('Ideal Decode v2 5bit', "ideal", lora.our_ideal_decode_decodev2_bit),
-    Config('LoRa Trimmer', "real", lora.loratrimmer_decode),
-    Config('LoRaPHY', "real", lora.loraphy)
-]
+
 def load_sig(file_path):
     return lora.read_file(file_path)
 
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        ("mock", 7, -40, -2, 1, 8),
-        ("mock",8,-40,-2,1,4),
-        ("mock",9,-40,-2,1,2),
-        ("mock",10,-40,-2,1,1)
+        ("mock", 7, -40, -2, 2, 8),
+        ("mock",8,-40,-2,2,4),
+        ("mock",9,-40,-2,2,2),
+        ("mock",10,-40,-2,2,1)
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -40,18 +48,19 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
     results = {
         'Ideal Decode v2': [],
         'hfft_decode':[],
-        'mfft_decode':[],
+        # 'mfft_decode':[],
         # 'Ideal Decode v2 5bit': [],
         'LoRa Trimmer': [],
         'LoRaPHY': [],
     }
-    ideal = os.path.join(".",data,str(sf),"ideal")
-    real = os.path.join(".",data,str(sf),"real")
+
+    ideal = os.path.join("./datasets",data,str(sf),"ideal")
+    real = os.path.join("./datasets",data,str(sf),"real")
     # 测试函数配置
     test_configs = [
         ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
         ('hfft_decode', real, lora.hfft_decode),
-        ('mfft_decode', real, lora.mfft_decode),
+        # ('mfft_decode', real, lora.mfft_decode),
         ('LoRa Trimmer', real, lora.loratrimmer_decode),
         ('LoRaPHY', real, lora.loraphy),
     ]
@@ -73,17 +82,20 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                     if ret == truth:
                         result += 1
 
-            accuracy = result / (epochs * 128)
+            accuracy = result / (epochs * 2 ** sf)
             results[name].append(accuracy)
             print(f"{name}: {accuracy:.4f}")
-    draw(results,snr_range,sf)
-    with open(f'./result/sf{sf}.json', 'w') as file:
+    s1 = Singleton()
+    # 创建文件夹路径
+    folder_name = s1.get_folder()
+    draw(results,snr_range,sf,folder_name)
+    with open(os.path.join(folder_name,f'./sf{sf}.json'), 'w') as file:
         res = results.copy()
         res['snr_range'] = snr_range.tolist()
         res['sf'] = sf
         json.dump(res, file, indent=4)
     return results, snr_range, results
-def draw(results,snr_range,sf):
+def draw(results,snr_range,sf,folder_name):
     plt.figure(figsize=(10, 6))
     for name in results:
         plt.plot(snr_range, results[name], marker='o', label=name)
@@ -94,6 +106,8 @@ def draw(results,snr_range,sf):
     plt.grid(True)
     plt.legend()
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
-    plt.savefig(f'./imgs/decoder_performance_SF{sf}_' + timestamp + '.png')
+    s1 = Singleton()
+    folder_name = s1.get_folder()
+    plt.savefig(os.path.join(folder_name,f'decoder_performance_SF{sf}'  + '.png'))
     plt.close()
 

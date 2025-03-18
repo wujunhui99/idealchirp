@@ -68,6 +68,8 @@ class PyLoRa:
         self.raw_chirp = signal
         return signal
 
+    import numpy as np
+
     def mfft_decode(self, sig):
         osr = int(self.fs / self.bw)
         target_osr = 2  # We'll downsample to OSR=2 as per paper
