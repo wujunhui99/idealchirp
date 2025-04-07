@@ -67,6 +67,33 @@ class PyLoRa:
         # Normalize
         self.raw_chirp = signal
         return signal
+    def ideal_chirpx(self, f0=0, iq_invert=0,rate = 1):
+        self.iq_invert = iq_invert
+        num_symbols = 2 ** self.sf
+        num_samples = int(num_symbols * self.fs / self.bw)
+
+        # Time array
+        t = np.linspace(0, num_symbols / self.bw, num_samples + 1)[:-1]
+
+        # Calculate frequency shift
+        freq_shift = (f0 * self.bw) / (rate * num_symbols)
+
+        # Generate upchirp
+        f0_shifted = -self.bw / 2 + freq_shift
+        f1_shifted = self.bw / 2 + freq_shift
+
+        # Generate I and Q components
+        chirp_i = chirp(t, f0=f0_shifted, f1=f1_shifted, t1=num_symbols / self.bw, method='linear', phi=90)
+        chirp_q = chirp(t, f0=f0_shifted, f1=f1_shifted, t1=num_symbols / self.bw, method='linear', phi=0)
+        if self.iq_invert:
+            chirp_q = - chirp_q
+        # Create complex signal
+        signal = chirp_i + 1j * chirp_q
+
+        # Normalize
+        self.raw_chirp = signal
+        return signal
+
 
     import numpy as np
 

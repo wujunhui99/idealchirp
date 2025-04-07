@@ -1,8 +1,8 @@
 from PyLoRa import PyLoRa
 import os
 lora = PyLoRa()
-def mock_data(sf=8):
-    dir = os.path.join(".","mock",str(sf))
+def mock_data(sf=7):
+    dir = os.path.join("./datasets","mock",str(sf))
     if not os.path.exists(dir):
         os.makedirs(dir)
     real_dir = os.path.join(dir,"real")
