@@ -41,6 +41,13 @@ class PyLoRa:
     def get_samples_per_symbol(self):
         return int((2 ** self.sf) * self.fs / self.bw)
 
+    def idealx_chirp(self, f0=0, iq_invert=0):
+        ud = int(f0 / int(2 ** self.sf / 2 ))
+        f_shift = f0 % int(2 ** self.sf / 2)
+        if(ud):
+            return self.ideal_chirp(f0=f_shift,iq_invert=1)
+        else:
+            return self.ideal_chirp(f0=f_shift,iq_invert=0)
     def ideal_chirp(self, f0=0, iq_invert=0):
         self.iq_invert = iq_invert
         num_symbols = 2 ** self.sf
@@ -282,8 +289,6 @@ class PyLoRa:
 
 
     def save_chirp(self, iq_data,remarks = "", f0=0, iq_invert=0):
-
-
         iq_data = iq_data.astype(np.complex64)
         fsM = str(int(self.fs/1e6))  + "M" if  self.fs / 1e6 else  ""
         fsK =  str((int(self.fs % 1e6)/1e3 )) + "K" if  self.fs % 1e6 / 1e3 else ""
@@ -300,28 +305,6 @@ class PyLoRa:
             num_samples))
         dataX = sig + noise  # dataX: data with noise
         return dataX
-    def add_noise2(self, sig, snr):
-        num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
-        num_samples = int(num_classes * self.fs / self.bw)  # number of samples per symbol
-        # add noise of a certain SNR, chosen from snr_range
-        amp = math.pow(0.1, snr / 10) * np.mean(np.abs(sig))
-        noise = (amp  * np.random.randn(num_samples) + 1j * amp  * np.random.randn(
-            num_samples))
-        dataX = sig + noise  # dataX: data with noise
-        return dataX
-    def plot_IQsignal(self, chirp_signal=None, f0=0, iq_invert=0):
-        if chirp_signal is None:
-            chirp_signal = self.real_chirp(f0, iq_invert)
-        plt.figure(figsize=(12, 4))
-        t = np.arange(len(chirp_signal)) / self.fs * 1000  # ms
-        plt.plot(t,  chirp_signal.real, label='Real')
-        plt.plot(t,  chirp_signal.imag, label='Imag')
-        freq_offset = f0 * self.bw / (2 ** self.sf) / 1e3  # kHz
-        plt.title(f'Chirp with f0={f0} (freq offset={freq_offset:.2f} kHz)')
-        plt.xlabel('Time (ms)')
-        plt.legend()
-        plt.tight_layout()
-        plt.show()
 
     def loraphy(self, sig):
         upsampling = 100  # up-sampling rate for loraphy, default 100
@@ -353,26 +336,22 @@ class PyLoRa:
             result[i] = self.ideal_chirp(f0=i,iq_invert=1)
             self.f0 = i
         return result
+    def gen_idealx_matrix(self):
+        num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
+        num_samples = int(num_classes * self.fs / self.bw)  # number of samples per symbol
+        result = np.zeros((num_classes, num_samples), dtype=np.complex64)
+        for i in range(num_classes):
+            if(i < int(num_classes / 2)):
+                result[i] = self.ideal_chirp(f0=i,iq_invert=1)
+                self.f0 = i
+            else:
+                result[i] = self.ideal_chirp(f0=i - int(num_classes/2), iq_invert=0)
+                self.f0 = i
+        return result
 
-    def our_ideal_decode_decodev2z(self,sig):
-        downchirp = self.ideal_chirp(f0=0,iq_invert=1)
-        dechirped = sig * downchirp
-        fft_raw = np_fft(dechirped, len(dechirped))
-        useful = fft_raw[:self.get_samples_per_symbol()]
-        mag = np.abs(useful) ** 2
-        est = np.argmax(mag)
-        max_val = np.max(mag)
-        return est, max_val
 
-    def our_ideal_decode_decodev2x(self, sig):
-        mtx = self.gen_tone_matrix()
-        sig = sig * self.ideal_chirp(f0=0,iq_invert=1)
-        sig = np.array(sig).T
-        result = np.matmul(mtx, sig)
-        vals = np.abs(result) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est, max_val
+
+
 
     def gen_tone_matrix(self):
         num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
@@ -391,27 +370,6 @@ class PyLoRa:
         # 应用滤波器
         fft_sig_filtered = fft_sig * mask
         return fft_sig_filtered
-    def our_ideal_decode_decodev3(self, up):
-        # 对两个信号做傅里叶变换
-        down = self.ideal_chirp(f0=0,iq_invert=1)
-        up_freq = np.fft.fft(up)
-        down_freq = np.fft.fft(down)
-
-        # 在频域上进行卷积操作
-        N = len(up_freq)
-        res = np.zeros(N, dtype=complex)
-
-        for i in range(N):
-            offset = self.bw * i / 2 ** self.sf
-            bandfilter = self.bandpass_filter(up_freq, self.fs, cutoff=self.bw, offset=offset)
-            for j in range(N):
-                k = (i + j) % N  # 循环卷积
-                res[k] += bandfilter[i] * down_freq[j] / N
-        res = np.abs(res[:2 ** self.sf])
-
-        value = np.max(res)
-        index = np.argmax(res)
-        return index, value
     def gen_tone(self, freq):
         length = self.get_samples_per_symbol()
         fs = self.fs
@@ -494,6 +452,14 @@ class PyLoRa:
 
     def our_ideal_decode_decodev2(self, sig):
         mtx = self.gen_ideal_matrix()
+        sig = np.array(sig).T
+        result = np.matmul(mtx, sig)
+        vals = np.abs(result) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+    def our_idealx_decode_decodev2(self, sig):
+        mtx = self.gen_idealx_matrix()
         sig = np.array(sig).T
         result = np.matmul(mtx, sig)
         vals = np.abs(result) ** 2

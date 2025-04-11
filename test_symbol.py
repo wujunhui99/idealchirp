@@ -16,18 +16,20 @@ def test_symbol_performance():
 
     # 更新结果存储字典
     results = {
-        'Ideal Decode v2': [],
+        'our': [],
         'LoRa Trimmer': [],
         'LoRaPHY': [],
         'HFFT':[]
     }
 
     # 更新测试配置
+
     test_configs = [
-        ('Ideal Decode v2', './mock/7/ideal', lora.our_ideal_decode_decodev2),
-        ('LoRa Trimmer', './mock/7/real', lora.loratrimmer_decode),
-        ('LoRaPHY', './mock/7/real', lora.loraphy),
-        ('HFFT', './mock/7/real', lora.hfft_decode)
+        ('ourIQ', './mock/7/ouriq', lora.our_idealx_decode_decodev2),
+        ('our', './mock/7/our', lora.our_ideal_decode_decodev2),
+        ('LoRa Trimmer', './mock/7/tradition', lora.loratrimmer_decode),
+        ('LoRaPHY', './mock/7/tradition', lora.loraphy),
+        ('HFFT', './mock/7/tradition', lora.hfft_decode)
     ]
 
     # 对每个symbol进行测试

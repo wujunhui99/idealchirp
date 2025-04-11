@@ -7,6 +7,7 @@ import time
 import pytest
 import json
 from datetime import datetime
+import random
 
 class Singleton:
     _instance = None
@@ -29,14 +30,19 @@ lora = PyLoRa()
 
 def load_sig(file_path):
     return lora.read_file(file_path)
+def move_sig(sig,f_shift,fs):
+    dt = 1 / fs  # 采样间隔
+    t = np.arange(len(sig)) * dt  # 时间数组
+    shift_factor = np.exp(1j * 2 * np.pi * f_shift * t)
+    return sig * shift_factor
 
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        ("mock", 7, -40, -2, 2, 8),
-        ("mock",8,-40,-2,2,4),
-        ("mock",9,-40,-2,2,2),
-        ("mock",10,-40,-2,2,1)
+        ("mock", 7, -40, -2, 2, 32),
+        # ("mock",8,-40,-2,3,4),
+        # ("mock",9,-40,-2,3,2),
+        # ("mock",10,-40,-2,3,1)
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -46,23 +52,25 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
     # epochs = 1  # 可以根据需要调整
     # 存储每个函数在不同SNR下的准确率
     results = {
-        'Ideal Decode v2': [],
-        'hfft_decode':[],
-        # 'mfft_decode':[],
+        'our': [],
+        'our_IQ': [],
+        'our_IQ_multi_channel': [],
+        # 'hfft_decode':[],
         # 'Ideal Decode v2 5bit': [],
-        'LoRa Trimmer': [],
-        'LoRaPHY': [],
+        # 'LoRa Trimmer': [],
+        # 'LoRaPHY': [],
     }
-
-    ideal = os.path.join("./datasets",data,str(sf),"ideal")
-    real = os.path.join("./datasets",data,str(sf),"real")
+    ideal2 = os.path.join("./datasets", data, str(sf), "ouriq")
+    ideal = os.path.join("./datasets",data,str(sf),"our")
+    real = os.path.join("./datasets",data,str(sf),"tradition")
     # 测试函数配置
     test_configs = [
-        ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
-        ('hfft_decode', real, lora.hfft_decode),
-        # ('mfft_decode', real, lora.mfft_decode),
-        ('LoRa Trimmer', real, lora.loratrimmer_decode),
-        ('LoRaPHY', real, lora.loraphy),
+        ('our', ideal, lora.our_ideal_decode_decodev2),
+        ('our_IQ_multi_channel', ideal2, lora.our_idealx_decode_decodev2),
+        ('our_IQ', ideal2, lora.our_idealx_decode_decodev2),
+        # ('hfft_decode', real, lora.hfft_decode),
+        # ('LoRa Trimmer', real, lora.loratrimmer_decode),
+        # ('LoRaPHY', real, lora.loraphy),
     ]
 
     # 对每个SNR值进行测试
@@ -76,8 +84,17 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                 truth = i
                 sig = load_sig(file_path)
 
+
                 for _ in range(epochs):
                     chirp = lora.add_noise(sig=sig, snr=snr)
+                    if name == "our_IQ_multi_channel":
+                        rint = random.randint(0,2**lora.sf - 1)
+                        file_pathx = os.path.join(dir_path, str(rint) + ".cfile")
+                        sig2 = load_sig(file_pathx)
+                        chirp = chirp + move_sig(sig=sig2,f_shift=200000,fs=lora.fs)
+
+
+
                     ret = func(sig=chirp)[0]
                     if ret == truth:
                         result += 1
