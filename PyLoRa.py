@@ -15,7 +15,6 @@ class PyLoRa:
             raise ValueError("Sampling frequency must be positive")
         if not isinstance(preamble_len, int) or preamble_len < 0:
             raise ValueError("Preamble length must be a non-negative integer")
-
         self.sf = sf
         self.bw = bw
         self.fs = fs
@@ -30,6 +29,7 @@ class PyLoRa:
         self.symbol_cnt = 0
         self.cfo = 0
         self.sfo = 0
+
         self.rf_freq = rf_freq
         self.os_ratio =int( self.fs / self.bw)
         self.bin_num = 2 ** self.sf * zero_padding
@@ -400,45 +400,8 @@ class PyLoRa:
 
         return dataE1, dataE2
 
-    def fft_lowpass_filter(self,sig, fs, cutoff):
-        # sig: 输入信号(复数numpy数组)
-        # fs: 采样率 1MHz
-        # cutoff: 截止频率 62.5kHz
 
-        # 进行FFT
-        fft_sig = np.fft.fft(sig)
-        freq = np.fft.fftfreq(len(sig), 1 / fs)
 
-        # 构建频域滤波器
-        mask = np.abs(freq) <= cutoff
-
-        # 应用滤波器
-        fft_sig_filtered = fft_sig * mask
-
-        # 进行IFFT
-        filtered_sig = np.fft.ifft(fft_sig_filtered)
-
-        return filtered_sig
-    def filter2_loratrimmer_decode(self, sig):
-        dataE1,dataE2 = self.gen_constants()
-        sig = self.fft_lowpass_filter(sig, self.fs, self.bw/2)
-        sig = np.array(sig).T
-        data1 = np.matmul(dataE1, sig)
-        data2 = np.matmul(dataE2, sig)
-        vals = np.abs(data1) ** 2 + np.abs(data2) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est, max_val
-    def filter_loratrimmer_decode(self, sig):
-        dataE1,dataE2 = self.gen_constants()
-        sig = self.fft_lowpass_filter(sig, self.fs, self.bw)
-        sig = np.array(sig).T
-        data1 = np.matmul(dataE1, sig)
-        data2 = np.matmul(dataE2, sig)
-        vals = np.abs(data1) ** 2 + np.abs(data2) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est, max_val
 
     def loratrimmer_decode(self, sig):
         dataE1,dataE2 = self.gen_constants()
@@ -449,39 +412,69 @@ class PyLoRa:
         est = np.argmax(vals).item()
         max_val = np.max(vals).item()
         return est, max_val
-
-    def our_ideal_decode_decodev2(self, sig):
+    def our_raw_ideal_decode_decodev2(self, sig):
         mtx = self.gen_ideal_matrix()
         sig = np.array(sig).T
         result = np.matmul(mtx, sig)
-        vals = np.abs(result) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est, max_val
-    def our_idealx_decode_decodev2(self, sig):
-        mtx = self.gen_idealx_matrix()
-        sig = np.array(sig).T
-        result = np.matmul(mtx, sig)
-        vals = np.abs(result) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est, max_val
-    def our_ideal_decode_decodev2_bit(self, sig):
-        mtx = self.gen_ideal_matrix_bit(self.bit)
-        sig = np.array(sig).T
-        result = np.matmul(mtx, sig)
-        vals = np.abs(result) ** 2
-        est = np.argmax(vals).item()
-        max_val = np.max(vals).item()
-        return est , max_val
-    def gen_ideal_matrix_bit(self,bit):
-        num_classes = 2 ** bit  # number of codes per symbol == 2 ** sf
-        num_samples = int(2 ** self.sf * self.fs / self.bw)  # number of samples per symbol
-        result = np.zeros((num_classes, num_samples), dtype=np.complex64)
-        for i in range(num_classes):
-            result[i] = self.ideal_chirp(f0=i * 2 ** (self.sf - bit),iq_invert=1)
-            self.f0 = i * 2 ** (self.sf - bit)
         return result
+    def our_ideal_decode_decodev2(self, sig):
+        result = self.our_raw_ideal_decode_decodev2(sig)
+        # mtx = self.gen_ideal_matrix()
+        # sig = np.array(sig).T
+        # result = np.matmul(mtx, sig)
+        vals = np.abs(result) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+    def subl_raw_our_ideal_decode_decodev2(self,sig,n):
+        mtx = self.gen_ideal_matrix()[:, :n]
+        sig = sig[0:n]
+        sig = np.array(sig).T
+        return np.matmul(mtx, sig)
+
+    def subl_our_ideal_decode_decodev2(self,sig,n):
+        result = self.subl_raw_our_ideal_decode_decodev2(sig,n)
+        vals = np.abs(result) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+    def subr_raw_our_ideal_decode_decodev2(self,sig,n):
+        mtx = self.gen_ideal_matrix()
+        mtx = mtx[:, n:]
+        sig = sig[n:len(sig)]
+        sig = np.array(sig).T
+        return np.matmul(mtx, sig)
+    def subr_our_ideal_decode_decodev2(self,sig,n):
+        result = self.subr_raw_our_ideal_decode_decodev2(sig,n)
+        vals = np.abs(result) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+
+    # def our_idealx_decode_decodev2(self, sig):
+    #     mtx = self.gen_idealx_matrix()
+    #     sig = np.array(sig).T
+    #     result = np.matmul(mtx, sig)
+    #     vals = np.abs(result) ** 2
+    #     est = np.argmax(vals).item()
+    #     max_val = np.max(vals).item()
+    #     return est, max_val
+    # def our_ideal_decode_decodev2_bit(self, sig):
+    #     mtx = self.gen_ideal_matrix_bit(self.bit)
+    #     sig = np.array(sig).T
+    #     result = np.matmul(mtx, sig)
+    #     vals = np.abs(result) ** 2
+    #     est = np.argmax(vals).item()
+    #     max_val = np.max(vals).item()
+    #     return est , max_val
+    # def gen_ideal_matrix_bit(self,bit):
+    #     num_classes = 2 ** bit  # number of codes per symbol == 2 ** sf
+    #     num_samples = int(2 ** self.sf * self.fs / self.bw)  # number of samples per symbol
+    #     result = np.zeros((num_classes, num_samples), dtype=np.complex64)
+    #     for i in range(num_classes):
+    #         result[i] = self.ideal_chirp(f0=i * 2 ** (self.sf - bit),iq_invert=1)
+    #         self.f0 = i * 2 ** (self.sf - bit)
+    #     return result
 
     def read_file(self, file_path):
 
@@ -644,15 +637,6 @@ class PyLoRa:
             print(r)
             lora.write_file(sig = sigc, file_path = prefix +'/'+ str(r[0]) + '.cfile')
             ii += self.get_samples_per_symbol()
-
-
-
-
-
-
-
-
-
 
 if __name__ == '__main__':
     lora = PyLoRa()
