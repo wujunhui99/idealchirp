@@ -638,8 +638,10 @@ class PyLoRa:
             lora.write_file(sig = sigc, file_path = prefix +'/'+ str(r[0]) + '.cfile')
             ii += self.get_samples_per_symbol()
 
-if __name__ == '__main__':
-    lora = PyLoRa()
+
+lora = PyLoRa()
+
+
 
 
 
