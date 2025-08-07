@@ -1,3 +1,7 @@
 *.cfile
 NELoRa-Sensys
 /ref
+/NELoRa-Sensys
+__pycache__/
+*.pyc
+*.pyo
