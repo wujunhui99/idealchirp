@@ -11,25 +11,26 @@ def load_sig(file_path):
 
 def test_symbol_performance():
     snr = -20
-    epochs = 1000
+    epochs = 100
     symbols = range(128)
 
     # 更新结果存储字典
     results = {
-        'our': [],
+        'ChirpSmoother': [],
         'LoRa Trimmer': [],
         'LoRaPHY': [],
+        'LoRaPHY_FPA':[],
         'HFFT':[]
     }
 
     # 更新测试配置
 
     test_configs = [
-        ('ourIQ', './mock/7/ouriq', lora.our_idealx_decode_decodev2),
-        ('our', './mock/7/our', lora.our_ideal_decode_decodev2),
-        ('LoRa Trimmer', './mock/7/tradition', lora.loratrimmer_decode),
-        ('LoRaPHY', './mock/7/tradition', lora.loraphy),
-        ('HFFT', './mock/7/tradition', lora.hfft_decode)
+        ('ChirpSmoother', './datasets/mock/7/our', lora.our_ideal_decode_decodev2),
+        ('LoRa Trimmer', './datasets/mock/7/tradition', lora.loratrimmer_decode),
+        ('LoRaPHY', './datasets/mock/7/tradition', lora.loraphy),
+        ('LoRaPHY_FPA', './datasets/mock/7/tradition', lora.loraphy_fpa),
+        ('HFFT', './datasets/mock/7/tradition', lora.hfft_decode)
     ]
 
     # 对每个symbol进行测试
@@ -57,10 +58,11 @@ def test_symbol_performance():
 
     # 定义不同线型和颜色
     styles = [
-        ('Ideal Decode v2', 'b-', 'blue'),
+        ('ChirpSmoother', 'b-', 'blue'),
         ('HFFT', 'r--', 'red'),
         ('LoRa Trimmer', 'g:', 'green'),
-        ('LoRaPHY', 'm-.', 'magenta')
+        ('LoRaPHY', 'm-.', 'magenta'),
+        ('LoRaPHY_FPA', 'c-', 'cyan')
     ]
 
     # 使用不同的线型绘制每个方法的结果

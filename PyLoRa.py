@@ -328,6 +328,50 @@ class PyLoRa:
         peak_idx = round((np.argmax(combined_spectrum) / upsampling).item()) % num_classes
         peak_value = np.max(combined_spectrum)
         return peak_idx, peak_value
+
+    def loraphy_fpa(self, sig, k=32):
+        """
+        Fine-grained Phase Alignment (FPA) method from LoRaPHY paper
+        
+        Args:
+            sig: Input signal
+            k: Number of phase search steps (default 16, as mentioned in paper)
+            
+        Returns:
+            tuple: (peak_idx, peak_value)
+        """
+        num_classes = 2 ** self.sf
+        osr = int(self.fs / self.bw)  # Over-sampling ratio: 1MHz / 125kHz = 8
+
+        downchirp = self.ideal_chirp(f0=0, iq_invert=1)
+
+        dechirped = sig * downchirp
+        upsampling = 100
+
+        fft_raw = np_fft(dechirped, len(dechirped) * upsampling)
+        # Phase alignment search
+        best_peak_value = 0
+        best_peak_idx = 0
+        
+        # Search through k possible phase offsets: Δφ = i×2π/k
+        for i in range(k):
+            phase_offset = i * 2 * np.pi / k
+            target_nfft = num_classes * upsampling
+            cut1 = fft_raw[:target_nfft]
+            cut2 = fft_raw[-target_nfft:]
+            cut1 *= np.exp(1j * phase_offset)
+            combined_spectrum =np.abs(cut1 + cut2)
+            # add absolute values of cut1 and cut2 to merge two peaks into one
+            peak_idx = round((np.argmax(combined_spectrum) / upsampling).item()) % num_classes
+            peak_value = np.max(combined_spectrum)
+            if peak_value > best_peak_value:
+                best_peak_value = peak_value
+                best_peak_idx = peak_idx
+        return best_peak_idx, best_peak_value
+
+            
+
+        return best_peak_idx, best_peak_value
     def gen_ideal_matrix(self):
         num_classes = 2 ** self.sf  # number of codes per symbol == 2 ** sf
         num_samples = int(num_classes * self.fs / self.bw)  # number of samples per symbol
