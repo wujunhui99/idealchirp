@@ -10,7 +10,7 @@ import pytest
 lora = PyLoRa(use_gpu=True)
 
 
-# ('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
+# ('Ideal Decode v2', ideal_past, lora.our_ideal_decode_decodev2),
 class Config():
     def __init__(self, name, ty, func):
         self.name = name
@@ -19,9 +19,9 @@ class Config():
 
 
 configs = [
-    Config('Ideal Decode v2', "ideal", lora.our_ideal_decode_decodev2),
-    Config('LoRa Trimmer', "real", lora.loratrimmer_decode),
-    Config('LoRaPHY', "real", lora.loraphy)
+    Config('Ideal Decode v2', "ideal_past", lora.our_ideal_decode_decodev2),
+    Config('LoRa Trimmer', "real_past", lora.loratrimmer_decode),
+    Config('LoRaPHY', "real_past", lora.loraphy)
 ]
 
 
@@ -48,8 +48,8 @@ def test_multiple_snr(data, sf, snr_min, snr_max, step, epochs):
         'LoRaPHY': [],
     }
 
-    ideal = os.path.join(".", data, str(sf), "ideal")
-    real = os.path.join(".", data, str(sf), "real")
+    ideal = os.path.join(".", data, str(sf), "ideal_past")
+    real = os.path.join(".", data, str(sf), "real_past")
 
     # 测试函数配置
     test_configs = [

@@ -606,7 +606,7 @@ class PyLoRa:
             result.append(func(sig = sigc))
             ii += self.get_samples_per_symbol()
         return ii
-    def limit_save(self, start = 0, num = 64, func = None,prefix = "./ideal",one = 1):
+    def limit_save(self, start = 0, num = 64, func = None,prefix = "./ideal_past",one = 1):
         ii = start
         if func == None:
             func = self.our_ideal_decode_decodev2

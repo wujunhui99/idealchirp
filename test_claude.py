@@ -26,7 +26,7 @@ class Singleton:
 
 
 lora = PyLoRa()
-#('Ideal Decode v2', ideal, lora.our_ideal_decode_decodev2),
+#('Ideal Decode v2', ideal_past, lora.our_ideal_decode_decodev2),
 
 def load_sig(file_path):
     return lora.read_file(file_path)
@@ -68,9 +68,9 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         ('our', ideal, lora.our_ideal_decode_decodev2),
         ('our_IQ_multi_channel', ideal2, lora.our_idealx_decode_decodev2),
         ('our_IQ', ideal2, lora.our_idealx_decode_decodev2),
-        # ('hfft_decode', real, lora.hfft_decode),
-        # ('LoRa Trimmer', real, lora.loratrimmer_decode),
-        # ('LoRaPHY', real, lora.loraphy),
+        # ('hfft_decode', real_past, lora.hfft_decode),
+        # ('LoRa Trimmer', real_past, lora.loratrimmer_decode),
+        # ('LoRaPHY', real_past, lora.loraphy),
     ]
 
     # 对每个SNR值进行测试
