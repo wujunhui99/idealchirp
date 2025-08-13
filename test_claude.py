@@ -2,12 +2,12 @@ from PyLoRa import PyLoRa
 import os
 import numpy as np
 import matplotlib.pyplot as plt
-from datetime import datetime
 import time
 import pytest
 import json
 from datetime import datetime
 import random
+from scipy.ndimage import gaussian_filter1d
 
 class Singleton:
     _instance = None
@@ -26,23 +26,17 @@ class Singleton:
 
 
 lora = PyLoRa()
-#('Ideal Decode v2', ideal_past, lora.our_ideal_decode_decodev2),
 
 def load_sig(file_path):
     return lora.read_file(file_path)
-def move_sig(sig,f_shift,fs):
-    dt = 1 / fs  # 采样间隔
-    t = np.arange(len(sig)) * dt  # 时间数组
-    shift_factor = np.exp(1j * 2 * np.pi * f_shift * t)
-    return sig * shift_factor
 
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        ("mock", 7, -40, -2, 2, 32),
+        # ("mock", 7, -40, -2, 2, 1),
         # ("mock",8,-40,-2,3,4),
         # ("mock",9,-40,-2,3,2),
-        # ("mock",10,-40,-2,3,1)
+        ("mock",10,-40,-2,3,4)
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -52,25 +46,25 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
     # epochs = 1  # 可以根据需要调整
     # 存储每个函数在不同SNR下的准确率
     results = {
-        'our': [],
-        'our_IQ': [],
-        'our_IQ_multi_channel': [],
-        # 'hfft_decode':[],
-        # 'Ideal Decode v2 5bit': [],
-        # 'LoRa Trimmer': [],
-        # 'LoRaPHY': [],
+        'ChirpSmoother': [],
+        'LoRa Trimmer': [],
+        'LoRaPHY-CPA': [],
+        'LoRaPHY-FPA':[],
+        'MFFT':[],
+        'HFFT':[],
+
     }
-    ideal2 = os.path.join("./datasets", data, str(sf), "ouriq")
-    ideal = os.path.join("./datasets",data,str(sf),"our")
-    real = os.path.join("./datasets",data,str(sf),"tradition")
+    ideal_path = os.path.join("./datasets",data,str(sf),"our")
+    tradition_path = os.path.join("./datasets",data,str(sf),"tradition")
     # 测试函数配置
     test_configs = [
-        ('our', ideal, lora.our_ideal_decode_decodev2),
-        ('our_IQ_multi_channel', ideal2, lora.our_idealx_decode_decodev2),
-        ('our_IQ', ideal2, lora.our_idealx_decode_decodev2),
-        # ('hfft_decode', real_past, lora.hfft_decode),
-        # ('LoRa Trimmer', real_past, lora.loratrimmer_decode),
-        # ('LoRaPHY', real_past, lora.loraphy),
+        ('ChirpSmoother', ideal_path, lora.our_ideal_decode_decodev2),
+        ('HFFT', tradition_path ,lora.hfft_decode),
+        ('MFFT', tradition_path ,lora.MFFT),
+        ('LoRa Trimmer', tradition_path, lora.loratrimmer_decode),
+        ('LoRaPHY-CPA', tradition_path, lora.loraphy),
+        ('LoRaPHY-FPA',tradition_path, lora.loraphy_fpa),
+
     ]
 
     # 对每个SNR值进行测试
@@ -87,14 +81,6 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
 
                 for _ in range(epochs):
                     chirp = lora.add_noise(sig=sig, snr=snr)
-                    if name == "our_IQ_multi_channel":
-                        rint = random.randint(0,2**lora.sf - 1)
-                        file_pathx = os.path.join(dir_path, str(rint) + ".cfile")
-                        sig2 = load_sig(file_pathx)
-                        chirp = chirp + move_sig(sig=sig2,f_shift=200000,fs=lora.fs)
-
-
-
                     ret = func(sig=chirp)[0]
                     if ret == truth:
                         result += 1
@@ -113,18 +99,95 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         json.dump(res, file, indent=4)
     return results, snr_range, results
 def draw(results,snr_range,sf,folder_name):
-    plt.figure(figsize=(10, 6))
-    for name in results:
-        plt.plot(snr_range, results[name], marker='o', label=name)
+    plt.figure(figsize=(16, 12))
+    
+    # 定义不同线型、颜色和标记点
+    styles = [
+        ('ChirpSmoother', 'red', 'solid', '*'),      # 五角星
+        ('HFFT', '#1f77b4', 'solid', '^'),          # 正三角
+        ('LoRa Trimmer', '#ff7f0e', 'dashed', 'v'),  # 倒三角
+        ('LoRaPHY-CPA', '#2ca02c', 'dotted', 'x'),   # 叉号
+        ('LoRaPHY-FPA', '#d62728', 'dashdot', '|'),  # 竖线
+        ('MFFT', '#9467bd', 'solid', 'd')           # 菱形
+    ]
+    
+    # 使用不同的线型绘制每个方法的结果，添加平滑效果和标记点
+    for name, color, linestyle, marker in styles:
+        if name in results:
+            # 应用高斯滤波平滑
+            smoothed_results = gaussian_filter1d(results[name], sigma=0.5)
+            # ChirpSmoother使用大小20的五角星，其他方法使用大小16的标记
+            markersize = 24 if name == 'ChirpSmoother' else 16
+            plt.plot(snr_range, smoothed_results, color=color, linestyle=linestyle, 
+                    label=name, alpha=0.8, linewidth=2, marker=marker, markersize=markersize)
 
-    plt.xlabel('SNR (dB)')
-    plt.ylabel('Accuracy')
+    plt.xlabel('SNR (dB)', fontsize=12)
+    plt.ylabel('Accuracy', fontsize=12)
     plt.title(f'Decoder Performance vs SNR(SF={sf}) mock data')
-    plt.grid(True)
-    plt.legend()
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(fontsize=10, columnspacing=4, handletextpad=2, handlelength=4,labelspacing=2)
     timestamp = datetime.now().strftime('%Y%m%d-%H%M%S')
     s1 = Singleton()
     folder_name = s1.get_folder()
-    plt.savefig(os.path.join(folder_name,f'decoder_performance_SF{sf}'  + '.png'))
+    plt.savefig(os.path.join(folder_name,f'decoder_performance_SF{sf}'  + '.png'), dpi=300, bbox_inches='tight')
     plt.close()
+
+def draw_from_json(json_path, output_path=None):
+    """
+    从JSON文件读取数据并绘制图表
+    
+    Args:
+        json_path: JSON文件路径
+        output_path: 输出图片路径，如果不指定则保存到JSON文件同目录
+    """
+    with open(json_path, 'r') as file:
+        data = json.load(file)
+    
+    # 提取数据
+    results = {k: v for k, v in data.items() if k not in ['snr_range', 'sf']}
+    snr_range = data['snr_range']
+    sf = data['sf']
+    
+    plt.figure(figsize=(16, 12))
+    
+    # 定义不同线型、颜色和标记点（与draw函数一致）
+    styles = [
+        ('ChirpSmoother', 'red', 'solid', '*'),  # 五角星
+        ('HFFT', '#1f77b4', 'solid', '^'),  # 正三角
+        ('LoRa Trimmer', '#ff7f0e', 'dashed', 'v'),  # 倒三角
+        ('LoRaPHY-CPA', '#2ca02c', 'dotted', 'x'),  # 叉号
+        ('LoRaPHY-FPA', '#d62728', 'dashdot', '|'),  # 竖线
+        ('MFFT', '#9467bd', 'solid', 'd')  # 菱形
+    ]
+    
+    # 使用不同的线型绘制每个方法的结果，添加平滑效果和标记点
+    for name, color, linestyle, marker in styles:
+        if name in results:
+            # 应用高斯滤波平滑
+            smoothed_results = gaussian_filter1d(results[name], sigma=0.5)
+            # ChirpSmoother使用大小20的五角星，其他方法使用大小16的标记
+            markersize = 24 if name == 'ChirpSmoother' else 16
+            plt.plot(snr_range, smoothed_results, color=color, linestyle=linestyle, 
+                    label=name, alpha=0.8, linewidth=2, marker=marker, markersize=markersize)
+
+    plt.xlabel('SNR (dB)', fontsize=12)
+    plt.ylabel('Accuracy', fontsize=12)
+    plt.title(f'Decoder Performance vs SNR(SF={sf}) mock data')
+    plt.grid(True, linestyle='--', alpha=0.7)
+    plt.legend(fontsize=10, columnspacing=4, handletextpad=2, handlelength=4,labelspacing=2)
+    
+    # 确定输出路径
+    if output_path is None:
+        # 如果没有指定输出路径，保存到JSON文件同目录
+        import os
+        json_dir = os.path.dirname(json_path)
+        output_path = os.path.join(json_dir, f'decoder_performance_SF{sf}_from_json.png')
+    
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"图表已保存到: {output_path}")
+    return output_path
+
+if __name__ == '__main__':
+    draw_from_json("./output/record20250812154420/sf7.json")
 

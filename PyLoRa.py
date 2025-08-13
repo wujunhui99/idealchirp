@@ -1,5 +1,6 @@
 import math
 from scipy.signal import chirp
+from scipy.signal import resample_poly
 from scipy.fft import fft as np_fft
 from scipy.signal import chirp as np_chirp
 import matplotlib.pyplot as plt
@@ -102,137 +103,95 @@ class PyLoRa:
         return signal
 
 
+
+
     import numpy as np
 
-    def mfft_decode(self, sig):
-        osr = int(self.fs / self.bw)
-        target_osr = 2  # We'll downsample to OSR=2 as per paper
+    from scipy.signal import chirp
 
-        # Ensure we have a valid OSR
-        if osr < target_osr:
-            print("Warning: Current OSR is less than target OSR. Performance may be degraded.")
-            target_osr = 1
 
-        # Get number of samples per symbol at current OSR
+    def MFFT(self, sig):
+        """
+        Multiple-FFT demodulation at OSI=2 (oversampling ratio = 2).
+
+        - Input signal assumed at self.fs (e.g., 1 MHz) and bw (e.g., 125 kHz)
+        - Downsample to fs_target = 2 * bw (e.g., 250 kHz) using resample_poly
+        - Split even/odd branches and combine their FFTs with phase compensation
+
+        Returns:
+            (symbol_idx, peak_value)
+        """
+        # Guard: one-symbol length handling at original fs
         samples_per_symbol = self.get_samples_per_symbol()
-
-        # Make sure signal is right length
         if len(sig) > samples_per_symbol:
             sig = sig[:samples_per_symbol]
         elif len(sig) < samples_per_symbol:
-            pad_length = samples_per_symbol - len(sig)
-            sig = np.pad(sig, (0, pad_length), 'constant')
+            sig = np.pad(sig, (0, samples_per_symbol - len(sig)), 'constant')
 
-        # Apply a bandpass filter to reduce out-of-band noise
-        sig_filtered = self.fft_lowpass_filter(sig, self.fs, self.bw)
+        # Target OSR and target sampling rate
+        target_osr = 2
+        fs_target = int(self.bw * target_osr)
 
-        # Downsample to OSR=2
-        if osr > target_osr:
-            # Instead of simple decimation, use averaging to preserve SNR
-            downsample_factor = osr // target_osr
-
-            # Reshape signal for averaging groups of samples
-            # Adjust length to be divisible by downsample_factor
-            trim_length = len(sig_filtered) - (len(sig_filtered) % downsample_factor)
-            sig_filtered_trimmed = sig_filtered[:trim_length]
-
-            # Reshape and average
-            sig_reshaped = sig_filtered_trimmed.reshape(-1, downsample_factor)
-            sig_downsampled = np.mean(sig_reshaped, axis=1)
+        # Downsample from current fs to fs_target with anti-aliasing
+        current_fs = int(self.fs)
+        if current_fs == fs_target:
+            sig_ds = sig
         else:
-            sig_downsampled = sig_filtered
+            # Prefer integer decimation when possible, else general resample
+            ratio = current_fs / fs_target
+            decim = int(round(ratio)) if ratio > 0 else 1
+            if abs(ratio - decim) < 1e-6 and decim > 0:
+                sig_ds = resample_poly(sig, up=1, down=decim)
+            else:
+                sig_ds = resample_poly(sig, up=fs_target, down=current_fs)
 
-        # Calculate new number of samples after downsampling
-        N_downsampled = len(sig_downsampled)
-
-        # Ensure even number of samples for even/odd splitting
-        if N_downsampled % 2 != 0:
-            sig_downsampled = sig_downsampled[:-1]
-            N_downsampled -= 1
-
-        # Split signal into even and odd samples
-        even_samples = sig_downsampled[0::2]
-        odd_samples = sig_downsampled[1::2]
-
-        # Generate downchirp at OSR=2
-        original_fs = self.fs
-        self.fs = self.bw * target_osr  # Temporarily set fs to match target OSR
-        downchirp = self.ideal_chirp(f0=0, iq_invert=1)
-        self.fs = original_fs  # Restore original fs
-
-        # Ensure downchirp matches the length of even/odd samples
-        if len(downchirp) > 2 * len(even_samples):
-            downchirp = downchirp[:2 * len(even_samples)]
-
-        # Extract even and odd samples from downchirp
-        downchirp_even = downchirp[0::2][:len(even_samples)]
-        downchirp_odd = downchirp[1::2][:len(odd_samples)]
-
-        # Apply window function to reduce spectral leakage
-        window = np.hamming(len(even_samples))
-
-        # Process even samples
-        y_even = even_samples * downchirp_even * window
-        Y_even = np.fft.fft(y_even)
-
-        # Process odd samples
-        y_odd = odd_samples * downchirp_odd * window
-        Y_odd = np.fft.fft(y_odd)
-
-        # Number of bins at Nyquist rate
+        # Required length at OSR=2 is 2 * N
         N = 2 ** self.sf
+        required_len = 2 * N
+        if len(sig_ds) > required_len:
+            sig_ds = sig_ds[:required_len]
+        elif len(sig_ds) < required_len:
+            sig_ds = np.pad(sig_ds, (0, required_len - len(sig_ds)), 'constant')
 
-        # Combine results with phase adjustment as per paper
-        # Make sure our FFT results are the right length
-        if len(Y_even) != N or len(Y_odd) != N:
-            # Resize FFT results to N bins
-            Y_even_resized = np.zeros(N, dtype=np.complex128)
-            Y_odd_resized = np.zeros(N, dtype=np.complex128)
+        # Split even/odd branches (length N each)
+        even_samples = sig_ds[0::2][:N]
+        odd_samples = sig_ds[1::2][:N]
 
-            # Copy available data
-            min_len = min(len(Y_even), N)
-            Y_even_resized[:min_len] = Y_even[:min_len]
-            Y_odd_resized[:min_len] = Y_odd[:min_len]
+        # Generate downchirp at OSR=2 to match branch lengths
+        # Use conjugate of upchirp to ensure proper dechirping around (-B/2, B/2)
+        original_fs = self.fs
+        self.fs = fs_target
+        upchirp_full = self.ideal_chirp(f0=0, iq_invert=0)
+        downchirp_full = np.conj(upchirp_full)
+        self.fs = original_fs
 
-            Y_even = Y_even_resized
-            Y_odd = Y_odd_resized
+        # Align downchirp to branches
+        downchirp_even = downchirp_full[0::2][:N]
+        downchirp_odd = downchirp_full[1::2][:N]
 
-        # Calculate combined result with proper phase adjustments
-        Y_combined = np.zeros(N, dtype=np.complex128)
 
-        for k in range(N):
-            # Phase adjustment as per paper equation (26)
-            phase_adjustment = np.exp(-1j * np.pi * k / N)
-            Y_combined[k] = Y_even[k] + phase_adjustment * Y_odd[k]
 
-        # Find the maximum magnitude and corresponding index
-        magnitudes = np.abs(Y_combined) ** 2
-        max_idx = np.argmax(magnitudes)
-        max_value = magnitudes[max_idx]
+        # Dechirp and FFT (N points)
+        y_even = even_samples * downchirp_even
+        y_odd = odd_samples * downchirp_odd
+        Y_even = np.fft.fft(y_even, n=N)
+        Y_odd = np.fft.fft(y_odd, n=N)
 
-        # Additional check: if the peak is not significant enough, try conventional method
-        peak_mean_ratio = max_value / np.mean(magnitudes)
-        if peak_mean_ratio < 3.0:  # Threshold can be tuned
-            # Fall back to conventional FFT method
-            downchirp_full = self.ideal_chirp(f0=0, iq_invert=1)
-            dechirped = sig_filtered * downchirp_full
+        # Reconstruct 2N-FFT halves using radix-2: 
+        # X[k]   = E[k] + W_{2N}^k O[k]
+        # X[k+N] = E[k] - W_{2N}^k O[k]
+        k = np.arange(N)
+        W = np.exp(-1j * np.pi * k / N)  # W_{2N}^k
+        X_lo = Y_even + W * Y_odd
+        X_hi = Y_even - W * Y_odd
 
-            # Apply window and FFT
-            window_full = np.hamming(len(dechirped))
-            dechirped_windowed = dechirped * window_full
-            fft_result = np.fft.fft(dechirped_windowed, samples_per_symbol)
-
-            # Find peak
-            magnitudes_conventional = np.abs(fft_result) ** 2
-            max_idx_conventional = np.argmax(magnitudes_conventional) % N
-            max_value_conventional = magnitudes_conventional[max_idx_conventional]
-
-            # Compare with combined method and choose the better one
-            if max_value_conventional > max_value:
-                max_idx = max_idx_conventional
-                max_value = max_value_conventional
-
-        return max_idx, max_value
+        # Fold positive/negative frequencies
+        mags = np.abs(X_lo) + np.abs(X_hi)
+        fft_peak_idx = int(np.argmax(mags))
+        peak_val = float(mags[fft_peak_idx])
+        # Map FFT bin index to LoRa symbol index
+        symbol_idx = int((fft_peak_idx ) % N)
+        return symbol_idx, peak_val
 
     def hfft_decode(self, sig):
         downchirp = self.ideal_chirp(f0=0, iq_invert=1)
@@ -456,20 +415,42 @@ class PyLoRa:
         est = np.argmax(vals).item()
         max_val = np.max(vals).item()
         return est, max_val
+    def lora_trimmer_edit(self,sig):
+        dataE1, dataE2 = self.gen_constants()
+        data = dataE1 + dataE2
+        sig = np.array(sig).T
+        datas = np.matmul(data, sig)
+        vals = np.abs(datas) ** 2
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+
     def our_raw_ideal_decode_decodev2(self, sig):
         mtx = self.gen_ideal_matrix()
         sig = np.array(sig).T
         result = np.matmul(mtx, sig)
         return result
     def our_ideal_decode_decodev2(self, sig):
-        result = self.our_raw_ideal_decode_decodev2(sig)
-        # mtx = self.gen_ideal_matrix()
-        # sig = np.array(sig).T
-        # result = np.matmul(mtx, sig)
+
+        mtx = self.gen_ideal_matrix()
+        sig = np.array(sig).T
+        result = np.matmul(mtx, sig)
         vals = np.abs(result) ** 2
         est = np.argmax(vals).item()
         max_val = np.max(vals).item()
         return est, max_val
+    def fft_ideal_decode_decodev2(self,sig):
+        downchirp = self.ideal_chirp(f0=0,iq_invert=0)
+        downchirp = np.conj(downchirp)
+        result = downchirp * sig
+        spec = np.fft.fft(result,len(result))
+        vals = np.abs(spec)
+        vals = vals[:2 ** self.sf]
+        est = np.argmax(vals).item()
+        max_val = np.max(vals).item()
+        return est, max_val
+
+
     def subl_raw_our_ideal_decode_decodev2(self,sig,n):
         mtx = self.gen_ideal_matrix()[:, :n]
         sig = sig[0:n]
@@ -495,30 +476,7 @@ class PyLoRa:
         max_val = np.max(vals).item()
         return est, max_val
 
-    # def our_idealx_decode_decodev2(self, sig):
-    #     mtx = self.gen_idealx_matrix()
-    #     sig = np.array(sig).T
-    #     result = np.matmul(mtx, sig)
-    #     vals = np.abs(result) ** 2
-    #     est = np.argmax(vals).item()
-    #     max_val = np.max(vals).item()
-    #     return est, max_val
-    # def our_ideal_decode_decodev2_bit(self, sig):
-    #     mtx = self.gen_ideal_matrix_bit(self.bit)
-    #     sig = np.array(sig).T
-    #     result = np.matmul(mtx, sig)
-    #     vals = np.abs(result) ** 2
-    #     est = np.argmax(vals).item()
-    #     max_val = np.max(vals).item()
-    #     return est , max_val
-    # def gen_ideal_matrix_bit(self,bit):
-    #     num_classes = 2 ** bit  # number of codes per symbol == 2 ** sf
-    #     num_samples = int(2 ** self.sf * self.fs / self.bw)  # number of samples per symbol
-    #     result = np.zeros((num_classes, num_samples), dtype=np.complex64)
-    #     for i in range(num_classes):
-    #         result[i] = self.ideal_chirp(f0=i * 2 ** (self.sf - bit),iq_invert=1)
-    #         self.f0 = i * 2 ** (self.sf - bit)
-    #     return result
+
 
     def read_file(self, file_path):
 
@@ -682,6 +640,114 @@ class PyLoRa:
             print(r)
             lora.write_file(sig = sigc, file_path = prefix +'/'+ str(r[0]) + '.cfile')
             ii += self.get_samples_per_symbol()
+
+    def nelora_decode(self, sig):
+        """
+        NeLoRa decoding method using neural network-enhanced demodulation.
+        
+        This method converts the input signal to STFT spectrogram format,
+        applies NeLoRa's neural network models for denoising and classification.
+        
+        Args:
+            sig: Input LoRa signal (complex-valued numpy array)
+        
+        Returns:
+            tuple: (estimated_symbol, confidence_value)
+        """
+        try:
+            # Import NeLoRa modules
+            import sys
+            import os
+            nelora_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
+                                     'NELoRa-Sensys/neural_enhanced_demodulation/pytorch')
+            if nelora_path not in sys.path:
+                sys.path.append(nelora_path)
+            
+            import torch
+            from scipy import signal as scipy_signal
+            from models.model_components import maskCNNModel, classificationHybridModel
+            import config
+            
+            # Create mock configuration for NeLoRa
+            class MockOpts:
+                def __init__(self, sf):
+                    self.sf = sf
+                    self.n_classes = 2 ** sf
+                    self.bw = 125000
+                    self.fs = 1000000
+                    self.x_image_channel = 2
+                    self.y_image_channel = 2
+                    self.conv_dim_lstm = self.n_classes * self.fs // self.bw
+                    self.lstm_dim = 400
+                    self.fc1_dim = 600
+                    self.freq_size = self.n_classes
+                    self.stft_nfft = self.n_classes * self.fs // self.bw
+                    self.stft_window = self.n_classes // 2
+                    self.stft_overlap = self.stft_window // 2
+                    self.normalization = False
+            
+            opts = MockOpts(self.sf)
+            
+            # Convert signal to STFT spectrogram
+            sig_array = np.array(sig)
+            
+            # Compute STFT
+            f, t, Zxx = scipy_signal.stft(
+                sig_array,
+                fs=opts.fs,
+                window='hann',
+                nperseg=opts.stft_window,
+                noverlap=opts.stft_overlap,
+                nfft=opts.stft_nfft
+            )
+            
+            # Prepare input for neural network
+            stft_data = torch.tensor(Zxx, dtype=torch.cfloat).unsqueeze(0)
+            
+            # Convert to real-valued format [B, 2, H, W] where 2 = [real, imag]
+            stft_real = torch.view_as_real(stft_data)  # [B, H, W, 2]
+            stft_input = stft_real.permute(0, 3, 1, 2)  # [B, 2, H, W]
+            
+            # Create NeLoRa models (without pre-trained weights)
+            mask_cnn = maskCNNModel(opts)
+            classifier = classificationHybridModel(
+                conv_dim_in=opts.y_image_channel,
+                conv_dim_out=opts.n_classes,
+                conv_dim_lstm=opts.conv_dim_lstm
+            )
+            
+            # Set models to evaluation mode
+            mask_cnn.eval()
+            classifier.eval()
+            
+            # WARNING: No pre-trained weights available - using random initialization
+            # In practice, you would load pre-trained weights here:
+            # mask_cnn.load_state_dict(torch.load('path_to_mask_cnn_weights.pkl'))
+            # classifier.load_state_dict(torch.load('path_to_classifier_weights.pkl'))
+            
+            with torch.no_grad():
+                # Apply mask CNN for denoising
+                denoised = mask_cnn(stft_input)
+                
+                # Apply classifier for symbol prediction
+                logits = classifier(denoised)
+                probabilities = torch.softmax(logits, dim=1)
+                
+                # Get predicted symbol and confidence
+                confidence, predicted = torch.max(probabilities, dim=1)
+                estimated_symbol = predicted.item()
+                confidence_value = confidence.item()
+            
+            return estimated_symbol, confidence_value
+            
+        except ImportError as e:
+            # Fallback to simple FFT-based decoding if NeLoRa modules not available
+            print(f"Warning: NeLoRa modules not available ({e}). Using fallback decoding.")
+            return self.our_ideal_decode_decodev2(sig)
+        except Exception as e:
+            # Fallback for any other errors
+            print(f"Warning: NeLoRa decoding failed ({e}). Using fallback decoding.")
+            return self.our_ideal_decode_decodev2(sig)
 
 
 lora = PyLoRa()
