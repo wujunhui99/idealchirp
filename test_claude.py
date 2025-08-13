@@ -54,6 +54,7 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         'HFFT':[],
 
     }
+    
     ideal_path = os.path.join("./datasets",data,str(sf),"our")
     tradition_path = os.path.join("./datasets",data,str(sf),"tradition")
     # 测试函数配置
@@ -66,28 +67,65 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         ('LoRaPHY-FPA',tradition_path, lora.loraphy_fpa),
 
     ]
+    
+    # 时间估算变量
+    start_time = time.time()
+    total_snr_count = len(snr_range)
+    total_tests = len(test_configs)
+    total_iterations = total_snr_count * total_tests * (2 ** sf) * epochs
+    completed_iterations = 0
+    
+    def format_time(seconds):
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = int(seconds % 60)
+        if hours > 0:
+            return f"{hours}h {minutes}m {secs}s"
+        elif minutes > 0:
+            return f"{minutes}m {secs}s"
+        else:
+            return f"{secs}s"
 
     # 对每个SNR值进行测试
-    for snr in snr_range:
-        print(f"Testing SNR: {snr}")
+    for snr_idx, snr in enumerate(snr_range):
+        print(f"\n=== Testing SNR: {snr} ({snr_idx + 1}/{total_snr_count}) ===")
         # 测试每个函数
-        for name, dir_path, func in test_configs:
+        for test_idx, (name, dir_path, func) in enumerate(test_configs):
             result = 0
             for i in range(2 ** sf):
                 file_path = os.path.join(dir_path, str(i) + ".cfile")
                 truth = i
                 sig = load_sig(file_path)
 
-
-                for _ in range(epochs):
+                for epoch in range(epochs):
                     chirp = lora.add_noise(sig=sig, snr=snr)
                     ret = func(sig=chirp)[0]
                     if ret == truth:
                         result += 1
+                    
+                    completed_iterations += 1
+                    
+                    # 每完成一个epoch后计算剩余时间
+                    if completed_iterations % (epochs * 10) == 0 or epoch == epochs - 1:
+                        elapsed_time = time.time() - start_time
+                        if completed_iterations > 0:
+                            avg_time_per_iteration = elapsed_time / completed_iterations
+                            remaining_iterations = total_iterations - completed_iterations
+                            estimated_remaining_time = remaining_iterations * avg_time_per_iteration
+                            progress_percent = (completed_iterations / total_iterations) * 100
+                            print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
 
             accuracy = result / (epochs * 2 ** sf)
             results[name].append(accuracy)
-            print(f"{name}: {accuracy:.4f}")
+            print(f"  {name}: {accuracy:.4f}")
+    
+    # 完成时间统计
+    total_elapsed_time = time.time() - start_time
+    print(f"\n=== Test Completed ===")
+    print(f"Total time elapsed: {format_time(total_elapsed_time)}")
+    print(f"Total iterations: {total_iterations}")
+    print(f"Average time per iteration: {total_elapsed_time/total_iterations:.4f}s")
+    
     s1 = Singleton()
     # 创建文件夹路径
     folder_name = s1.get_folder()
@@ -189,5 +227,6 @@ def draw_from_json(json_path, output_path=None):
     return output_path
 
 if __name__ == '__main__':
-    draw_from_json("./output/record20250812154420/sf7.json")
+    # draw_from_json("./output/record20250812154420/sf7.json")
+    test_multiple_snr  ("mock",10,-40,-2,3,4)
 
