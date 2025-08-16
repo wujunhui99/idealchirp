@@ -1,4 +1,19 @@
-from PyLoRa import PyLoRa
+import sys
+# 动态选择 CPU/GPU 版本的 PyLoRa，默认 CPU，命令行包含 'gpu' 时启用 GPU 版本
+_use_gpu = any(arg.lower() == 'gpu' for arg in sys.argv[1:])
+try:
+    if _use_gpu:
+        from PyLoRa_GPU import PyLoRa as _PyLoRaSelected
+        SELECTED_BACKEND = 'gpu'
+    else:
+        from PyLoRa import PyLoRa as _PyLoRaSelected
+        SELECTED_BACKEND = 'cpu'
+except Exception as _e:
+    # GPU 版本不可用时回退到 CPU
+    from PyLoRa import PyLoRa as _PyLoRaSelected
+    SELECTED_BACKEND = 'cpu'
+    print(f"[test_claude] GPU backend unavailable, fallback to CPU: {_e}")
+PyLoRa = _PyLoRaSelected
 import os
 import numpy as np
 import matplotlib.pyplot as plt
@@ -36,7 +51,7 @@ def load_sig(file_path):
         # ("mock", 7, -40, -2, 2, 1),
         # ("mock",8,-40,-2,3,4),
         # ("mock",9,-40,-2,3,2),
-        ("mock",10,-40,-2,3,4)
+        ("mock",7,-40,-2,3,1)
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -92,28 +107,85 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         # 测试每个函数
         for test_idx, (name, dir_path, func) in enumerate(test_configs):
             result = 0
-            for i in range(2 ** sf):
-                file_path = os.path.join(dir_path, str(i) + ".cfile")
-                truth = i
-                sig = load_sig(file_path)
+            # GPU批处理路径：当后端为GPU且提供批量接口时，一次性加载并处理一批
+            is_gpu = SELECTED_BACKEND == 'gpu'
+            can_batch = is_gpu and hasattr(lora, 'batch_our_ideal_decode_decodev2')
+            cp = None
+            if is_gpu:
+                try:
+                    import cupy as cp  # noqa: F401
+                except Exception:
+                    cp = None
+            # 预读所有符号，构建 [B,T] 数组，B=2**sf
+            all_sigs = []
+            truths = []
+            if can_batch:
+                for i in range(2 ** sf):
+                    file_path = os.path.join(dir_path, str(i) + ".cfile")
+                    sig = load_sig(file_path)
+                    all_sigs.append(sig)
+                    truths.append(i)
+                all_sigs = np.stack(all_sigs, axis=0)
 
-                for epoch in range(epochs):
-                    chirp = lora.add_noise(sig=sig, snr=snr)
-                    ret = func(sig=chirp)[0]
-                    if ret == truth:
-                        result += 1
-                    
-                    completed_iterations += 1
-                    
-                    # 每完成一个epoch后计算剩余时间
-                    if completed_iterations % (epochs * 10) == 0 or epoch == epochs - 1:
-                        elapsed_time = time.time() - start_time
-                        if completed_iterations > 0:
-                            avg_time_per_iteration = elapsed_time / completed_iterations
-                            remaining_iterations = total_iterations - completed_iterations
-                            estimated_remaining_time = remaining_iterations * avg_time_per_iteration
-                            progress_percent = (completed_iterations / total_iterations) * 100
-                            print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
+            for epoch in range(epochs):
+                if can_batch:
+                    # 批量加噪（一次生成整批噪声，再分批解码）
+                    noisy_all = lora.add_noise_batch(all_sigs, snr=snr) if hasattr(lora, 'add_noise_batch') else np.stack([lora.add_noise(sig=s, snr=snr) for s in all_sigs], axis=0)
+                    B = 2 ** sf
+                    # 方法相关的安全 batch size，避免 OOM
+                    if name in ('LoRaPHY-CPA', 'LoRaPHY-FPA'):
+                        batch_size = 64
+                    else:
+                        batch_size = 256
+                    # 分批推理
+                    all_rets = []
+                    for start in range(0, B, batch_size):
+                        end = min(start + batch_size, B)
+                        noisy = noisy_all[start:end]
+                        if name == 'ChirpSmoother' and hasattr(lora, 'batch_our_ideal_decode_decodev2'):
+                            rets, _ = lora.batch_our_ideal_decode_decodev2(noisy)
+                        elif name == 'HFFT' and hasattr(lora, 'batch_hfft_decode'):
+                            rets, _ = lora.batch_hfft_decode(noisy)
+                        elif name == 'MFFT' and hasattr(lora, 'batch_MFFT'):
+                            rets, _ = lora.batch_MFFT(noisy)
+                        elif name == 'LoRa Trimmer' and hasattr(lora, 'batch_loratrimmer_decode'):
+                            rets, _ = lora.batch_loratrimmer_decode(noisy)
+                        elif name == 'LoRaPHY-CPA' and hasattr(lora, 'batch_loraphy'):
+                            rets, _ = lora.batch_loraphy(noisy)
+                        elif name == 'LoRaPHY-FPA' and hasattr(lora, 'batch_loraphy_fpa'):
+                            rets, _ = lora.batch_loraphy_fpa(noisy)
+                        else:
+                            rets = np.array([func(sig=x)[0] for x in noisy])
+                        all_rets.append(rets)
+                        # 主动释放显存
+                        if cp is not None:
+                            try:
+                                cp.cuda.Device().synchronize()
+                                cp.get_default_memory_pool().free_all_blocks()
+                            except Exception:
+                                pass
+                    rets = np.concatenate(all_rets, axis=0)
+                    result += int(np.sum(rets == np.array(truths)))
+                    completed_iterations += B
+                else:
+                    for i in range(2 ** sf):
+                        file_path = os.path.join(dir_path, str(i) + ".cfile")
+                        truth = i
+                        sig = load_sig(file_path)
+                        chirp = lora.add_noise(sig=sig, snr=snr)
+                        ret = func(sig=chirp)[0]
+                        if ret == truth:
+                            result += 1
+                        completed_iterations += 1
+
+                # 进度输出
+                elapsed_time = time.time() - start_time
+                if completed_iterations > 0:
+                    avg_time_per_iteration = elapsed_time / completed_iterations
+                    remaining_iterations = total_iterations - completed_iterations
+                    estimated_remaining_time = remaining_iterations * avg_time_per_iteration
+                    progress_percent = (completed_iterations / total_iterations) * 100
+                    print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
 
             accuracy = result / (epochs * 2 ** sf)
             results[name].append(accuracy)
@@ -228,5 +300,5 @@ def draw_from_json(json_path, output_path=None):
 
 if __name__ == '__main__':
     # draw_from_json("./output/record20250812154420/sf7.json")
-    test_multiple_snr  ("mock",10,-40,-2,3,4)
+    test_multiple_snr  ("mock", 10,-40,-2,3,32)
 
