@@ -18,4 +18,9 @@ def mock_data(sf=8):
         lora.write_file(sig = sig_our,file_path=os.path.join(our_dir,str(i)+".cfile"))
         lora.write_file(sig=sig_tradition, file_path=os.path.join(traditon_dir, str(i) + ".cfile"))
 
-mock_data(sf = 12)
+if __name__ == '__main__':
+    import argparse
+    parser = argparse.ArgumentParser(description='Generate mock LoRa dataset for given SF')
+    parser.add_argument('--sf', type=int, default=10, help='Spreading Factor (default: 10)')
+    args = parser.parse_args()
+    mock_data(sf=args.sf)
