@@ -6,8 +6,12 @@ from scipy import interpolate
 from scipy.ndimage import gaussian_filter1d
 
 sig = lora.real_chirp(f0=48)
+sigl = lora.ideal_chirp(f0=48)
 
-sign = lora.add_noise(sig,snr = -10)
+sign = lora.add_noise(sig,snr = -4)
+sigln = sign -sig + sigl
+
+lora.write_file(file_path="nosia.cfile",sig = sigln)
 
 downchirp = lora.real_chirp(f0=0,iq_invert=1)
 
@@ -19,9 +23,9 @@ amp0 = np.abs(res)
 amppos = amp0[:128]
 ampneg = amp0[len(amp0)-128:]
 
-amp = amppos + ampneg
+#amp = amppos + ampneg
 
-# amp = np.hstack((amppos,ampneg))
+amp = np.hstack((amppos,ampneg))
 
 
 def plot_pic(size,x_ticks ,x_lables,y_ticks,amp,file_name, title = "testing",swap_axes=False):
@@ -35,23 +39,12 @@ def plot_pic(size,x_ticks ,x_lables,y_ticks,amp,file_name, title = "testing",swa
     amp_final = f(x_interp)
 
     if swap_axes:
-        # 交换 x 轴和 y 轴，相当于将图形逆时针旋转90度
         plt.plot(amp_final, x_interp, linewidth=2, color='black')
-        plt.yticks(x_ticks, x_labels)  # 原 x 轴刻度和标签现在用于 y 轴
-        plt.xticks(y_ticks)  # 原 y 轴刻度现在用于 x 轴
-        plt.ylabel('Frequency', fontsize=22, fontfamily='Arial')  # 交换标签
-        plt.xlabel('Amplitude', fontsize=22, fontfamily='Arial')
     else:
-        # 正常绘制：x 轴是频率索引，y 轴是幅度
         plt.plot(x_interp, amp_final, linewidth=2, color='black')
-        plt.xticks(x_ticks, x_labels)
-        plt.yticks(y_ticks)
-        plt.xlabel('Frequency', fontsize=24, fontfamily='Arial')
-        plt.ylabel('Amplitude', fontsize=24, fontfamily='Arial')
 
-    plt.xticks(fontsize=18)  # 设置 x 轴刻度字体大小
-    plt.yticks(fontsize=18)
-    plt.title(title, fontsize=25, fontfamily='Arial', pad=-80, loc='center', va='bottom', y=0)
+    plt.xticks([])
+    plt.yticks([])
     plt.tick_params(axis='both', which='both', length=0)
     plt.subplots_adjust(bottom=0.25)
     plt.savefig(file_name + '.png')
