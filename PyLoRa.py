@@ -35,6 +35,8 @@ class PyLoRa:
         self.os_ratio =int( self.fs / self.bw)
         self.bin_num = 2 ** self.sf * zero_padding
         self.sfo_accum = 0
+        self.dataE1 = None
+        self.dataE2 = None
 
     def get_symbol_period(self):
         return (2 ** self.sf) / self.bw
@@ -408,6 +410,7 @@ class PyLoRa:
 
     def loratrimmer_decode(self, sig):
         dataE1,dataE2 = self.gen_constants()
+        # dataE1, dataE2 = self.dataE1,self.dataE2
         sig = np.array(sig).T
         data1 = np.matmul(dataE1, sig)
         data2 = np.matmul(dataE2, sig)
