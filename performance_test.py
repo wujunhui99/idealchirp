@@ -2,9 +2,9 @@ import time
 import numpy as np
 from PyLoRa import PyLoRa
 
-def test_performance():
+def test_performance(sf):
     lora = PyLoRa()
-    lora.sf = 7
+    lora.sf = sf
     lora.dataE1, lora.dataE2 = lora.gen_constants()
     print(lora.dataE1)
     print("...")
@@ -19,13 +19,13 @@ def test_performance():
     
     # Methods to test
     methods = [
-        # ("our_ideal_decode_decodev2", lambda: lora.our_ideal_decode_decodev2(sig)),
-        ("fft_ideal_decode_decodev2", lambda: lora.fft_ideal_decode_decodev2(sig)),
-        ("MFFT", lambda: lora.MFFT(sig)),
-        ("hfft_decode", lambda: lora.hfft_decode(sig2)),
         ("loraphy_fpa", lambda: lora.loraphy_fpa(sig2)),
         ("loraphy_cpa", lambda: lora.loraphy(sig2)),
-        ("loratrimmer_decode", lambda: lora.loratrimmer_decode(sig2))
+        ("MFFT", lambda: lora.MFFT(sig)),
+        ("hfft_decode", lambda: lora.hfft_decode(sig2)),
+        ("loratrimmer_decode", lambda: lora.loratrimmer_decode(sig2)),
+        ("fft_ideal_decode_decodev2", lambda: lora.fft_ideal_decode_decodev2(sig)),
+
     ]
     
     results = {}
@@ -91,9 +91,9 @@ def test_performance():
     print("\n" + "-" * 60)
     print("RANKING (fastest to slowest):")
     print("-" * 60)
-    
+
     for i, (method_name, result) in enumerate(sorted_results, 1):
         print(f"{i}. {method_name}: {result['avg']*1000:.4f} ms")
 
 if __name__ == "__main__":
-    test_performance()
+    test_performance(7)

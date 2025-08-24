@@ -409,8 +409,8 @@ class PyLoRa:
 
 
     def loratrimmer_decode(self, sig):
-        dataE1,dataE2 = self.gen_constants()
-        # dataE1, dataE2 = self.dataE1,self.dataE2
+        # dataE1,dataE2 = self.gen_constants()
+        dataE1, dataE2 = self.dataE1,self.dataE2
         sig = np.array(sig).T
         data1 = np.matmul(dataE1, sig)
         data2 = np.matmul(dataE2, sig)
