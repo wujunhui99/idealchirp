@@ -1,6 +1,6 @@
 import sys
 # 动态选择 CPU/GPU 版本的 PyLoRa，默认 CPU，命令行包含 'gpu' 时启用 GPU 版本
-_use_gpu = any(arg.lower() == 'gpu' for arg in sys.argv[1:])
+_use_gpu = True
 try:
     if _use_gpu:
         from PyLoRa_GPU import PyLoRa as _PyLoRaSelected
@@ -57,10 +57,12 @@ def load_sig(file_path):
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        # ("mock", 7, -40, -2, 2, 1),
-        # ("mock",8,-40,-2,3,4),
-        # ("mock",9,-40,-2,3,2),
-        ("mock",7,-40,-2,3,1)
+        ("mock", 7, -40, -2, 1, 32),
+        ("mock",8,-40,-2,1,16),
+        ("mock",9,-40,-2,1,8),
+        ("mock",10,-40,-2,1,4),
+        ("mock",11,-40,-2,1,2),
+        ("mock",12,-40,-2,1,1),
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
@@ -110,48 +112,82 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
         else:
             return f"{secs}s"
 
-    # 对每个SNR值进行测试
-    for snr_idx, snr in enumerate(snr_range):
-        print(f"\n=== Testing SNR: {snr} ({snr_idx + 1}/{total_snr_count}) ===")
-        # 测试每个函数
-        for test_idx, (name, dir_path, func) in enumerate(test_configs):
-            result = 0
-            # GPU批处理路径：当后端为GPU且提供批量接口时，一次性加载并处理一批
-            is_gpu = SELECTED_BACKEND == 'gpu'
-            can_batch = is_gpu and hasattr(lora, 'batch_our_ideal_decode_decodev2')
-            cp = None
-            if is_gpu:
-                try:
-                    import cupy as cp  # noqa: F401
-                except Exception:
-                    cp = None
-            # 预读所有符号，构建 [B,T] 数组，B=2**sf
-            all_sigs = []
-            truths = []
-            if can_batch:
-                for i in range(2 ** sf):
-                    file_path = os.path.join(dir_path, str(i) + ".cfile")
-                    sig = load_sig(file_path)
-                    all_sigs.append(sig)
-                    truths.append(i)
-                all_sigs = np.stack(all_sigs, axis=0)
-                truths_eval = normalize_symbol(truths, sf, lora.bw)
+    # 预读所有符号，构建 [B,T] 数组，B=2**sf（GPU 批处理一次读完，CPU 保持旧逻辑）
+    is_gpu = SELECTED_BACKEND == 'gpu'
+    try:
+        cp = __import__('cupy') if is_gpu else None
+    except Exception:
+        cp = None
+
+    def _gen_noisy(all_sigs_arr, snr_slice_arr):
+        """Generate noisy signals; compatible with old add_noise_batch signatures."""
+        add_noise_fn = getattr(lora, 'add_noise_batch', None)
+        if add_noise_fn is None:
+            return np.stack([lora.add_noise(sig=s, snr=float(snr_slice_arr)) for s in all_sigs_arr], axis=0)
+        try:
+            return add_noise_fn(all_sigs_arr, snr=snr_slice_arr, return_numpy=False)
+        except TypeError:
+            # Fallback for legacy signature; if SNR is vector, call per-snr to avoid math.pow errors
+            try:
+                noisy = add_noise_fn(all_sigs_arr, snr=snr_slice_arr)
+                if cp is not None:
+                    try:
+                        noisy = cp.asarray(noisy)
+                    except Exception:
+                        pass
+                return noisy
+            except Exception:
+                snr_flat = np.asarray(snr_slice_arr).reshape(-1)
+                outs = []
+                for snr_scalar in snr_flat:
+                    out = add_noise_fn(all_sigs_arr, snr=float(snr_scalar))
+                    outs.append(cp.asarray(out) if cp is not None else np.asarray(out))
+                return cp.stack(outs, axis=0) if cp is not None else np.stack(outs, axis=0)
+
+    for test_idx, (name, dir_path, func) in enumerate(test_configs):
+        print(f"\n=== Testing {name} ({test_idx + 1}/{total_tests}) ===")
+        result = np.zeros(total_snr_count, dtype=np.int64) if is_gpu else 0
+        can_batch = is_gpu and hasattr(lora, 'batch_our_ideal_decode_decodev2')
+
+        all_sigs = []
+        truths = []
+        if can_batch:
+            for i in range(2 ** sf):
+                file_path = os.path.join(dir_path, str(i) + ".cfile")
+                sig = load_sig(file_path)
+                all_sigs.append(sig)
+                truths.append(i)
+            all_sigs = np.stack(all_sigs, axis=0)
+            truths_eval = normalize_symbol(truths, sf, lora.bw)
+            truths_eval = np.asarray(truths_eval, dtype=np.int64)
+
+        # GPU并行路径：一次处理多个SNR，显著提升吞吐
+        if can_batch:
+            B = 2 ** sf
+            # 动态控制 SNR 维度的 chunk，避免占用过多显存。默认上限 512MB。
+            gpu_chunk_limit_bytes = int(os.getenv("GPU_SNR_CHUNK_BYTES", 512 * 1024 * 1024))
+            per_snr_bytes = all_sigs.nbytes
+            snr_chunk = max(1, min(total_snr_count, int(gpu_chunk_limit_bytes // per_snr_bytes) if per_snr_bytes else total_snr_count))
+            snr_chunk = max(1, snr_chunk)
+
+            # 方法相关的批大小：FPA/CPA 稍小，其余更大以提升占用
+            def get_batch_size(method_name):
+                if method_name in ('LoRaPHY-CPA', 'LoRaPHY-FPA'):
+                    return 256
+                return 1024
 
             for epoch in range(epochs):
-                if can_batch:
-                    # 批量加噪（一次生成整批噪声，再分批解码）
-                    noisy_all = lora.add_noise_batch(all_sigs, snr=snr) if hasattr(lora, 'add_noise_batch') else np.stack([lora.add_noise(sig=s, snr=snr) for s in all_sigs], axis=0)
-                    B = 2 ** sf
-                    # 方法相关的安全 batch size，避免 OOM
-                    if name in ('LoRaPHY-CPA', 'LoRaPHY-FPA'):
-                        batch_size = 64
-                    else:
-                        batch_size = 256
-                    # 分批推理
+                for snr_start in range(0, total_snr_count, snr_chunk):
+                    snr_slice = snr_range[snr_start:snr_start + snr_chunk]
+                    # 直接在 GPU 上生成带噪声的 [S,B,T]
+                    noisy_all = _gen_noisy(all_sigs, snr_slice)
+                    noisy_flat = noisy_all.reshape(-1, noisy_all.shape[-1])
+
+                    batch_size = get_batch_size(name)
                     all_rets = []
-                    for start in range(0, B, batch_size):
-                        end = min(start + batch_size, B)
-                        noisy = noisy_all[start:end]
+                    for start in range(0, noisy_flat.shape[0], batch_size):
+                        end = min(start + batch_size, noisy_flat.shape[0])
+                        noisy = noisy_flat[start:end]
                         if name == 'ChirpSmoother' and hasattr(lora, 'batch_our_ideal_decode_decodev2'):
                             rets, _ = lora.batch_our_ideal_decode_decodev2(noisy)
                         elif name == 'HFFT' and hasattr(lora, 'batch_hfft_decode'):
@@ -167,18 +203,38 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                         else:
                             rets = np.array([func(sig=x)[0] for x in noisy])
                         all_rets.append(rets)
-                        # 主动释放显存
+                        # 可以选择性同步显存，避免显存碎片
                         if cp is not None:
                             try:
                                 cp.cuda.Device().synchronize()
-                                cp.get_default_memory_pool().free_all_blocks()
                             except Exception:
                                 pass
+
                     rets = np.concatenate(all_rets, axis=0)
-                    rets_eval = normalize_symbol(rets, sf, lora.bw)
-                    result += int(np.sum(rets_eval == truths_eval))
-                    completed_iterations += B
-                else:
+                    rets_eval = normalize_symbol(np.asarray(rets), sf, lora.bw).reshape(len(snr_slice), B)
+                    matches = (rets_eval == truths_eval)
+                    for local_idx, snr_idx in enumerate(range(snr_start, snr_start + len(snr_slice))):
+                        result[snr_idx] += int(np.sum(matches[local_idx]))
+                    completed_iterations += len(snr_slice) * B
+
+                    # 进度输出（按 chunk）
+                    elapsed_time = time.time() - start_time
+                    avg_time_per_iteration = elapsed_time / completed_iterations if completed_iterations else 0
+                    remaining_iterations = total_iterations - completed_iterations
+                    estimated_remaining_time = remaining_iterations * avg_time_per_iteration if avg_time_per_iteration else 0
+                    progress_percent = (completed_iterations / total_iterations) * 100
+                    print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
+
+            accuracy = result / (epochs * 2 ** sf)
+            results[name].extend(accuracy.tolist())
+            for snr_idx, acc in enumerate(accuracy):
+                print(f"  SNR {snr_range[snr_idx]}: {acc:.4f}")
+        else:
+            # CPU 或无批处理路径：保持原逻辑（逐 SNR）
+            for snr_idx, snr in enumerate(snr_range):
+                print(f"\n--- SNR: {snr} ({snr_idx + 1}/{total_snr_count}) ---")
+                result_single = 0
+                for epoch in range(epochs):
                     for i in range(2 ** sf):
                         file_path = os.path.join(dir_path, str(i) + ".cfile")
                         truth = i
@@ -188,21 +244,21 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                         truth_eval = normalize_symbol(truth, sf, lora.bw)
                         ret_eval = normalize_symbol(ret, sf, lora.bw)
                         if ret_eval == truth_eval:
-                            result += 1
+                            result_single += 1
                         completed_iterations += 1
 
-                # 进度输出
-                elapsed_time = time.time() - start_time
-                if completed_iterations > 0:
-                    avg_time_per_iteration = elapsed_time / completed_iterations
-                    remaining_iterations = total_iterations - completed_iterations
-                    estimated_remaining_time = remaining_iterations * avg_time_per_iteration
-                    progress_percent = (completed_iterations / total_iterations) * 100
-                    print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
+                    # 进度输出
+                    elapsed_time = time.time() - start_time
+                    if completed_iterations > 0:
+                        avg_time_per_iteration = elapsed_time / completed_iterations
+                        remaining_iterations = total_iterations - completed_iterations
+                        estimated_remaining_time = remaining_iterations * avg_time_per_iteration
+                        progress_percent = (completed_iterations / total_iterations) * 100
+                        print(f"  Progress: {progress_percent:.1f}% | Elapsed: {format_time(elapsed_time)} | Remaining: {format_time(estimated_remaining_time)}")
 
-            accuracy = result / (epochs * 2 ** sf)
-            results[name].append(accuracy)
-            print(f"  {name}: {accuracy:.4f}")
+                accuracy = result_single / (epochs * 2 ** sf)
+                results[name].append(accuracy)
+                print(f"  {name}: {accuracy:.4f}")
     
     # 完成时间统计
     total_elapsed_time = time.time() - start_time
