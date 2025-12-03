@@ -1,6 +1,7 @@
 import sys
 # 动态选择 CPU/GPU 版本的 PyLoRa，默认 CPU，命令行包含 'gpu' 时启用 GPU 版本
-_use_gpu = any(arg.lower() == 'gpu' for arg in sys.argv[1:])
+# _use_gpu = any(arg.lower() == 'gpu' for arg in sys.argv[1:])
+_use_gpu = True
 try:
     if _use_gpu:
         from PyLoRa_GPU import PyLoRa as _PyLoRaSelected
@@ -48,10 +49,12 @@ def load_sig(file_path):
 @pytest.mark.parametrize(
     "data, sf,snr_min,snr_max,step,epochs",
     [
-        # ("mock", 7, -40, -2, 2, 1),
-        # ("mock",8,-40,-2,3,4),
-        # ("mock",9,-40,-2,3,2),
-        ("mock",7,-40,-2,3,1)
+        ("mock", 7, -40, -2, 1, 32),
+        ("mock",8,-40,-2,1,16),
+        ("mock",9,-40,-2,1,8),
+        ("mock",10,-40,-2,1,4),
+        ("mock",11,-40,-2,1,2),
+        ("mock",12,-40,-2,1,1),
     ]
 )
 def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
