@@ -42,6 +42,15 @@ class Singleton:
 
 lora = PyLoRa()
 
+# 对应 SF=11/12 且 BW=125 kHz 时，LoRa 会开启低速率模式，需要忽略符号的低两位
+def normalize_symbol(symbol, sf, bw):
+    arr = np.asarray(symbol, dtype=np.int64)
+    if sf in (11, 12) and abs(bw - 125e3) < 1e-6:
+        arr = arr >> 2
+    if np.isscalar(symbol):
+        return int(arr)
+    return arr
+
 def load_sig(file_path):
     return lora.read_file(file_path)
 
@@ -126,6 +135,7 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                     all_sigs.append(sig)
                     truths.append(i)
                 all_sigs = np.stack(all_sigs, axis=0)
+                truths_eval = normalize_symbol(truths, sf, lora.bw)
 
             for epoch in range(epochs):
                 if can_batch:
@@ -165,7 +175,8 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                             except Exception:
                                 pass
                     rets = np.concatenate(all_rets, axis=0)
-                    result += int(np.sum(rets == np.array(truths)))
+                    rets_eval = normalize_symbol(rets, sf, lora.bw)
+                    result += int(np.sum(rets_eval == truths_eval))
                     completed_iterations += B
                 else:
                     for i in range(2 ** sf):
@@ -174,7 +185,9 @@ def test_multiple_snr(data, sf,snr_min,snr_max,step,epochs):
                         sig = load_sig(file_path)
                         chirp = lora.add_noise(sig=sig, snr=snr)
                         ret = func(sig=chirp)[0]
-                        if ret == truth:
+                        truth_eval = normalize_symbol(truth, sf, lora.bw)
+                        ret_eval = normalize_symbol(ret, sf, lora.bw)
+                        if ret_eval == truth_eval:
                             result += 1
                         completed_iterations += 1
 
@@ -305,4 +318,3 @@ if __name__ == '__main__':
     draw_from_json("./output/SF11/sf11.json")
     draw_from_json("./output/SF12/sf12.json")
     # test_multiple_snr  ("mock", 10,-40,-2,3,32)
-

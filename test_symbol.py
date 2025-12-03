@@ -4,7 +4,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 import json
-from scipy.ndimage import gaussian_filter1d
 lora = PyLoRa()
 
 def load_sig(file_path):
@@ -13,7 +12,7 @@ def load_sig(file_path):
 
 def test_symbol_performance():
     snr = -20
-    epochs = 500
+    epochs = 1000
     symbols = range(128)
 
     # 更新结果存储字典

@@ -73,7 +73,7 @@ def plot_snr_threshold_bar():
     
     # 设置柱子宽度和位置，柱子变窄70%，增加间隔
     bar_width = 0.084  # 原来0.12的70%
-    spacing = 0.01     # 柱子之间的间隔，约为原宽度的10%
+    spacing = 0.016     # 柱子之间的间隔，约为原宽度的10%
     n_methods = len(methods)
     
     # 为每个SF绘制一组柱子
@@ -94,9 +94,9 @@ def plot_snr_threshold_bar():
                       color=colors[method], label=method if i == 0 else "")
     
     # 设置图表属性
-    ax.set_xlabel('SF', fontsize=14, fontweight='bold')
-    ax.set_ylabel('SNR Threshold (dB)', fontsize=14, fontweight='bold')
-    ax.set_title('SNR Threshold vs Spreading Factor (90% Success Rate)', fontsize=16, fontweight='bold')
+    ax.set_xlabel('SF', fontsize=20, fontweight='bold')
+    ax.set_ylabel('SNR Threshold (dB)', fontsize=20, fontweight='bold')
+    # ax.set_title('SNR Threshold vs Spreading Factor (90% Success Rate)', fontsize=16, fontweight='bold')
     
     # 设置网格
     ax.grid(True, alpha=0.3, axis='y')
@@ -104,13 +104,13 @@ def plot_snr_threshold_bar():
     
     # 设置x轴
     ax.set_xticks(sf_values)
-    ax.set_xticklabels(sf_values, fontsize=12, fontweight='bold')
+    ax.set_xticklabels(sf_values, fontsize=16, fontweight='bold')
     
     # 设置y轴
     ax.tick_params(axis='y', labelsize=11)
     
     # 设置图例
-    ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0), fontsize=11)
+    ax.legend(loc='upper right', bbox_to_anchor=(1.0, 1.0), fontsize=20)
     
     # 设置y轴范围，从-35到0
     ax.set_ylim(-35, 0)

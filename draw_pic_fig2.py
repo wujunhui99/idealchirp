@@ -50,7 +50,7 @@ def plot_pic(size,x_ticks ,x_lables,y_ticks,amp,file_name, title = "testing",swa
     plt.savefig(file_name + '.png')
     plt.show()
 
-size = (8,8)
+size = (10,4)
 x_ticks =np.linspace(0,len(amp) - 1,5)
 x_labels = ['0', 'B/4', 'B/2', '3B/4', 'B']
 y_ticks = (0, 100, 200, 300, 400, 500, 600)

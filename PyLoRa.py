@@ -35,8 +35,8 @@ class PyLoRa:
         self.os_ratio =int( self.fs / self.bw)
         self.bin_num = 2 ** self.sf * zero_padding
         self.sfo_accum = 0
-        self.dataE1 = None
-        self.dataE2 = None
+        self.dataE1 = self.gen_constants()[0]
+        self.dataE2 = self.gen_constants()[1]
 
     def get_symbol_period(self):
         return (2 ** self.sf) / self.bw
@@ -196,33 +196,48 @@ class PyLoRa:
         return symbol_idx, peak_val
 
     def hfft_decode(self, sig):
-        downchirp = self.ideal_chirp(f0=0, iq_invert=1)
+        downchirp = self.ideal_chirp(f0=0,iq_invert=0)
+        downchirp = np.conj(downchirp)
+        result = downchirp * sig
+        spec = np.fft.fft(result,len(result))
+        vals = np.abs(spec)
+        vals0 = vals[:2 ** self.sf]
+        est0 = np.argmax(vals0).item()
+        max_val0 = np.max(vals0).item()
+        vals1 = vals[-2 ** self.sf:]
+        est1 = np.argmax(vals1).item()
+        max_val1 = np.max(vals1).item()
+        if max_val0 > max_val1:
+            return est0, max_val0
+        return est1, max_val1
 
-        dechirped = sig * downchirp
-        fft_result = np.fft.fft(dechirped, len(dechirped))
+        # downchirp = self.ideal_chirp(f0=0, iq_invert=1)
 
-        magnitudes = np.abs(fft_result)
+        # dechirped = sig * downchirp
+        # fft_result = np.fft.fft(dechirped, len(dechirped))
 
-        num_bins = 2 ** self.sf
+        # magnitudes = np.abs(fft_result)
 
-        neg_freqs = magnitudes[len(magnitudes) - int(num_bins / 2):]
-        pos_freqs = magnitudes[:int(num_bins / 2)]
+        # num_bins = 2 ** self.sf
 
-        relevant_magnitudes = np.concatenate((neg_freqs, pos_freqs))
+        # neg_freqs = magnitudes[len(magnitudes) - int(num_bins / 2):]
+        # pos_freqs = magnitudes[:int(num_bins / 2)]
 
-        # Find the index of the maximum magnitude
-        max_idx = np.argmax(relevant_magnitudes)
-        max_magnitude = relevant_magnitudes[max_idx]
+        # relevant_magnitudes = np.concatenate((neg_freqs, pos_freqs))
 
-        # Adjust the index to represent the correct symbol
-        if max_idx >= int(num_bins / 2):
-            # If in the negative frequency part, adjust the index
-            symbol = max_idx - int(num_bins / 2)
-        else:
-            # If in the positive frequency part, adjust the index
-            symbol = max_idx + int(num_bins / 2)
+        # # Find the index of the maximum magnitude
+        # max_idx = np.argmax(relevant_magnitudes)
+        # max_magnitude = relevant_magnitudes[max_idx]
 
-        return symbol, max_magnitude
+        # # Adjust the index to represent the correct symbol
+        # if max_idx >= int(num_bins / 2):
+        #     # If in the negative frequency part, adjust the index
+        #     symbol = max_idx - int(num_bins / 2)
+        # else:
+        #     # If in the positive frequency part, adjust the index
+        #     symbol = max_idx + int(num_bins / 2)
+
+        # return symbol, max_magnitude
 
 
 
@@ -754,8 +769,6 @@ class PyLoRa:
 
 
 lora = PyLoRa()
-
-
 
 
 

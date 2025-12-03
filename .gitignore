@@ -5,3 +5,9 @@ NELoRa-Sensys
 __pycache__/
 *.pyc
 *.pyo
+
+mock/
+datasets/
+data/
+tmp/
+logs/
